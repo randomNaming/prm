@@ -5,6 +5,7 @@ import type {
 	Contact,
 	ContactDetail,
 	ContactFact,
+	ContactListItem,
 	Deal,
 	Page,
 } from "../../app/types/domain";
@@ -18,6 +19,7 @@ import {
 } from "../db/schema";
 import { db } from "./db";
 import { addFieldOption } from "./fields";
+import { appliedFactMap } from "./list-facts";
 import { newId, nowMs } from "./ids";
 import {
 	activityKind,
@@ -82,7 +84,7 @@ export function toFact(row: FactRow): ContactFact {
 	};
 }
 
-export async function listContacts(query: ListQuery): Promise<Page<Contact>> {
+export async function listContacts(query: ListQuery): Promise<Page<ContactListItem>> {
 	const filters = [
 		query.archived ? sql`${contacts.archivedAt} IS NOT NULL` : isNull(contacts.archivedAt),
 	];
@@ -99,8 +101,9 @@ export async function listContacts(query: ListQuery): Promise<Page<Contact>> {
 
 	const [rows, totals] = await Promise.all([
 		db()
-			.select()
+			.select({ row: contacts, companyName: companies.name })
 			.from(contacts)
+			.leftJoin(companies, eq(companies.id, contacts.companyId))
 			.where(where)
 			.orderBy(desc(contacts.updatedAt))
 			.limit(query.pageSize)
@@ -108,8 +111,17 @@ export async function listContacts(query: ListQuery): Promise<Page<Contact>> {
 		db().select({ total: count() }).from(contacts).where(where),
 	]);
 
+	const facts = await appliedFactMap(
+		"contact",
+		rows.map((item) => item.row.id),
+	);
+
 	return {
-		items: rows.map(toContact),
+		items: rows.map((item) => ({
+			...toContact(item.row),
+			companyName: item.companyName ?? null,
+			facts: facts.get(item.row.id) ?? {},
+		})),
 		total: Number(totals[0]?.total ?? 0),
 		page: query.page,
 		pageSize: query.pageSize,
@@ -276,12 +288,17 @@ export async function archiveContact(id: string): Promise<boolean> {
 }
 
 export async function restoreContact(id: string): Promise<boolean> {
-	const result = await db()
+	const existing = await getContact(id);
+	if (!existing) return false;
+
+	// 不靠 affectedRows 判断：把已经是 NULL 的 archived_at 再写成 NULL，
+	// MySQL 算作「没有变化」返回 0，会被误判成记录不存在。
+	await db()
 		.update(contacts)
 		.set({ archivedAt: null, updatedAt: nowMs() })
 		.where(eq(contacts.id, id));
 
-	return result[0].affectedRows > 0;
+	return true;
 }
 
 /**

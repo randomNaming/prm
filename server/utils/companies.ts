@@ -1,5 +1,12 @@
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
-import type { Company, CompanyDetail, Contact, Deal, Page } from "../../app/types/domain";
+import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import type {
+	Company,
+	CompanyDetail,
+	CompanyListItem,
+	Contact,
+	Deal,
+	Page,
+} from "../../app/types/domain";
 import { activities, agentTasks, companies, contacts, deals } from "../db/schema";
 import {
 	toActivity,
@@ -11,10 +18,36 @@ import {
 import { companyFactsFor } from "./company-facts";
 import { db } from "./db";
 import { newId, nowMs } from "./ids";
+import { appliedFactMap } from "./list-facts";
 import { concatContains, containsText } from "./sql";
 import type { CompanyInput, ListQuery } from "./validate";
 
-export async function listCompanies(query: ListQuery): Promise<Page<Company>> {
+/**
+ * 每家公司在跑的联系人数，供列表展示。
+ *
+ * 刻意用「另发一条分组查询」而不是相关子查询：drizzle 只会给出现在本条查询里的表加限定名，
+ * 写成子查询时 `contacts.company_id = companies.id` 会被渲染成不带表名的 `company_id = id`，
+ * 变成 contacts 表内部自比，永远数出 0。
+ */
+async function liveContactCounts(ids: string[]): Promise<Map<string, number>> {
+	const counts = new Map<string, number>();
+
+	if (ids.length === 0) return counts;
+
+	const rows = await db()
+		.select({ companyId: contacts.companyId, total: count() })
+		.from(contacts)
+		.where(and(inArray(contacts.companyId, ids), isNull(contacts.archivedAt)))
+		.groupBy(contacts.companyId);
+
+	for (const row of rows) {
+		if (row.companyId) counts.set(row.companyId, Number(row.total));
+	}
+
+	return counts;
+}
+
+export async function listCompanies(query: ListQuery): Promise<Page<CompanyListItem>> {
 	const filters = [
 		query.archived ? sql`${companies.archivedAt} IS NOT NULL` : isNull(companies.archivedAt),
 	];
@@ -38,8 +71,19 @@ export async function listCompanies(query: ListQuery): Promise<Page<Company>> {
 		db().select({ total: count() }).from(companies).where(where),
 	]);
 
+	const ids = rows.map((row) => row.id);
+
+	const [contactCounts, facts] = await Promise.all([
+		liveContactCounts(ids),
+		appliedFactMap("company", ids),
+	]);
+
 	return {
-		items: rows.map(toCompany),
+		items: rows.map((row) => ({
+			...toCompany(row),
+			contactCount: contactCounts.get(row.id) ?? 0,
+			facts: facts.get(row.id) ?? {},
+		})),
 		total: Number(totals[0]?.total ?? 0),
 		page: query.page,
 		pageSize: query.pageSize,
@@ -106,6 +150,20 @@ export async function archiveCompany(id: string): Promise<boolean> {
 		.where(and(eq(companies.id, id), isNull(companies.archivedAt)));
 
 	return result[0].affectedRows > 0;
+}
+
+export async function restoreCompany(id: string): Promise<boolean> {
+	const existing = await getCompany(id);
+	if (!existing) return false;
+
+	// 不靠 affectedRows 判断：把已经是 NULL 的 archived_at 再写成 NULL，
+	// MySQL 算作「没有变化」返回 0，会被误判成记录不存在。
+	await db()
+		.update(companies)
+		.set({ archivedAt: null, updatedAt: nowMs() })
+		.where(eq(companies.id, id));
+
+	return true;
 }
 
 export async function companyContacts(companyId: string): Promise<Contact[]> {

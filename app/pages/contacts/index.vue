@@ -1,23 +1,64 @@
 <script setup lang="ts">
+import type { ContactListItem } from "~/types/domain";
+import {
+	CONTACT_BUILTIN_FIELD_KEYS,
+	CONTACT_COLUMNS,
+	customColumns,
+	type ListColumn,
+} from "~/utils/list-columns";
+
 const api = useApi();
 const route = useRoute();
 const router = useRouter();
 
 const q = ref(String(route.query.q ?? ""));
 const page = ref(Number(route.query.page ?? 1));
+const archived = ref(route.query.archived === "true");
 const showCreate = ref(false);
 const submitting = ref(false);
 const errorText = ref("");
 
 const { data, refresh } = await useAsyncData(
 	"contacts-list",
-	() => api.listContacts({ q: q.value, page: page.value }),
-	{ watch: [q, page] },
+	() => api.listContacts({ q: q.value, page: page.value, archived: archived.value }),
+	{ watch: [q, page, archived] },
 );
+
+const { data: fieldDefs } = await useAsyncData("contact-list-fields", () => api.fields("contact"));
+
+const columns = computed<ListColumn<ContactListItem>[]>(() => [
+	...CONTACT_COLUMNS,
+	...customColumns<ContactListItem>(
+		fieldDefs.value?.fields ?? [],
+		"contact",
+		CONTACT_BUILTIN_FIELD_KEYS,
+	),
+]);
+
+const { visible, visibleColumns, setVisible, reset } = useTableColumns(
+	"crm.columns.contact",
+	columns,
+);
+
+function syncQuery() {
+	router.replace({
+		query: {
+			q: q.value || undefined,
+			page: page.value,
+			archived: archived.value ? "true" : undefined,
+		},
+	});
+}
 
 function search() {
 	page.value = 1;
-	router.replace({ query: { q: q.value || undefined, page: page.value } });
+	syncQuery();
+}
+
+function toggleArchived(value: boolean) {
+	page.value = 1;
+	archived.value = value;
+	syncQuery();
 }
 
 async function createContact(payload: Record<string, unknown>) {
@@ -35,6 +76,31 @@ async function createContact(payload: Record<string, unknown>) {
 	}
 }
 
+// el-table 的插槽行类型是 DefaultRow，拿不到具体行类型，在这里收口一次。
+async function remove(row: unknown) {
+	const item = row as ContactListItem;
+
+	try {
+		await api.archiveContact(item.id);
+		ElMessage.success(`已删除${personName(item)}，可在「显示已归档」里恢复。`);
+		await refresh();
+	} catch (error) {
+		ElMessage.error(error instanceof Error ? error.message : "删除失败。");
+	}
+}
+
+async function restore(row: unknown) {
+	const item = row as ContactListItem;
+
+	try {
+		await api.restoreContact(item.id);
+		ElMessage.success(`已恢复${personName(item)}。`);
+		await refresh();
+	} catch (error) {
+		ElMessage.error(error instanceof Error ? error.message : "恢复失败。");
+	}
+}
+
 const total = computed(() => data.value?.total ?? 0);
 </script>
 
@@ -45,34 +111,60 @@ const total = computed(() => data.value?.total ?? 0);
 			<el-button type="primary" @click="showCreate = true">新建联系人</el-button>
 		</div>
 
-		<div class="crm-row crm-section">
-			<el-input
-				v-model="q"
-				placeholder="按姓名、邮箱、微信号搜索（子串匹配）"
-				style="max-width: 360px"
-				clearable
-				@keyup.enter="search"
-				@clear="search"
-			/>
-			<el-button @click="search">搜索</el-button>
+		<div class="crm-spread crm-section">
+			<div class="crm-row">
+				<el-input
+					v-model="q"
+					placeholder="按姓名、邮箱、微信号搜索（子串匹配）"
+					style="max-width: 360px"
+					clearable
+					@keyup.enter="search"
+					@clear="search"
+				/>
+				<el-button @click="search">搜索</el-button>
+			</div>
+			<div class="crm-row">
+				<el-switch
+					:model-value="archived"
+					active-text="显示已归档"
+					@update:model-value="(value: string | number | boolean) => toggleArchived(Boolean(value))"
+				/>
+				<ColumnPicker
+					:columns="columns"
+					:model-value="visible"
+					@update:model-value="setVisible"
+					@reset="reset"
+				/>
+			</div>
 		</div>
 
-		<el-table v-if="total > 0" :data="data?.items ?? []" style="width: 100%">
-			<el-table-column label="姓名" min-width="140">
-				<template #default="{ row }">
-					<NuxtLink :to="`/contacts/${row.id}`" class="crm-link">{{ personName(row) }}</NuxtLink>
-				</template>
-			</el-table-column>
-			<el-table-column prop="title" label="职位" min-width="140" />
-			<el-table-column prop="email" label="邮箱" min-width="180" />
-			<el-table-column prop="phone" label="电话" min-width="130" />
-			<el-table-column prop="wechatId" label="微信号" min-width="130" />
-			<el-table-column label="最近更新" min-width="130">
-				<template #default="{ row }">{{ formatRelative(row.updatedAt) }}</template>
-			</el-table-column>
-		</el-table>
+		<RecordTable v-if="total > 0" :columns="visibleColumns" :rows="data?.items ?? []">
+			<template #actions>
+				<el-table-column label="操作" width="90" fixed="right">
+					<template #default="{ row }">
+						<el-popconfirm
+							v-if="!archived"
+							width="260"
+							title="删除后不再出现在列表，可在「显示已归档」里恢复。确定删除？"
+							confirm-button-text="删除"
+							cancel-button-text="取消"
+							confirm-button-type="danger"
+							@confirm="remove(row)"
+						>
+							<template #reference>
+								<el-button link type="danger" size="small">删除</el-button>
+							</template>
+						</el-popconfirm>
+						<el-button v-else link type="primary" size="small" @click="restore(row)">恢复</el-button>
+					</template>
+				</el-table-column>
+			</template>
+		</RecordTable>
 
-		<el-empty v-else description="还没有联系人，新建一个" />
+		<el-empty
+			v-else
+			:description="archived ? '没有已归档的联系人' : '还没有联系人，新建一个'"
+		/>
 
 		<el-pagination
 			v-if="total > 20"
@@ -95,12 +187,6 @@ const total = computed(() => data.value?.total ?? 0);
 .crm-title {
 	font-size: 20px;
 	margin: 0;
-}
-
-.crm-link {
-	color: var(--crm-brand);
-	text-decoration: none;
-	font-weight: 500;
 }
 
 .crm-pagination {

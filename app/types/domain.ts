@@ -329,11 +329,74 @@ export type DealDetail = {
 	activities: Activity[];
 };
 
+/**
+ * 列表行的额外承载字段。
+ *
+ * 列表比详情多两件事：跨表要展示的字段（联系人看公司名、公司看联系人数），
+ * 以及自定义字段的当前值 —— 后者没有对应数据库列，只能从事实表带出来。
+ */
+export type ContactListItem = Contact & {
+	companyName: string | null;
+	/** 键为 field_defs.key，值是该记录上已生效的字段值。 */
+	facts: Record<string, string>;
+};
+
+export type CompanyListItem = Company & {
+	contactCount: number;
+	facts: Record<string, string>;
+};
+
 export type Page<T> = {
 	items: T[];
 	total: number;
 	page: number;
 	pageSize: number;
+};
+
+export type McpEnvSource = "env" | "file" | "missing";
+
+export type McpEnvItem = {
+	key: string;
+	required: boolean;
+	description: string;
+	value: string;
+	source: McpEnvSource;
+};
+
+export type McpSnippet = {
+	label: string;
+	where: string;
+	json: string;
+};
+
+export type McpTool = {
+	name: string;
+	summary: string;
+};
+
+export type McpServerInfo = {
+	id: string;
+	name: string;
+	direction: string;
+	summary: string;
+	packageDir: string;
+	entry: string;
+	entryExists: boolean;
+	envFile: string;
+	envFileExists: boolean;
+	env: McpEnvItem[];
+	tools: McpTool[];
+	snippets: McpSnippet[];
+	buildCommands: string[];
+	blockers: string[];
+	ready: boolean;
+};
+
+export type McpOverview = {
+	platformBaseUrl: string;
+	root: string;
+	servers: McpServerInfo[];
+	notes: string[];
 };
 
 export type SearchHit = {

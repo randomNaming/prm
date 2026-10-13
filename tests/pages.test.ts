@@ -131,17 +131,70 @@ describe.skipIf(!built)("页面渲染：简体中文、无金额、可导航", (
 		expect(detail.includes("金额")).toBe(false);
 	});
 
-	test("公司列表与详情", async () => {
-		const list = await html("/companies");
-		expect(list).toContain("示例科技");
+	// el-table 的列头与单元格只在客户端渲染，SSR 出来的是空壳，
+	// 所以这一组只断言「确实服务端渲染得出来」的东西：工具栏、字段清单、以及列表数据本身。
+	test("联系人列表：字段选择器、归档开关、跨表列数据都到了页面上", async () => {
+		const list = await html("/contacts");
 
+		expect(list).toContain("显示字段");
+		expect(list).toContain("显示已归档");
+		expect(list).toContain("列表显示哪些字段");
+		expect(list).toContain("恢复默认");
+		expect(list).toContain("选择会记在这台浏览器上");
+
+		// 默认勾选的列：姓名、业务角色、公司、最近更新。
+		expect(list).toContain("业务角色");
+		expect(list).toContain("最近更新");
+
+		// 列表接口把公司名一起带了出来，服务端渲染的数据里就能看到。
+		expect(list).toContain("companyName");
+		expect(list).toContain("示例科技");
+	});
+
+	test("公司列表：合作角色、行业、联系人数都是可选列", async () => {
+		const list = await html("/companies");
+
+		expect(list).toContain("显示字段");
+		expect(list).toContain("合作角色");
+		expect(list).toContain("行业");
+		expect(list).toContain("联系人");
+		expect(list).toContain("contactCount");
+	});
+
+	test("公司详情：公司联系人、相关商机、公司资料、字段建议都在", async () => {
 		const detail = await html(`/companies/${companyId}`);
+
 		expect(detail).toContain("公司联系人");
 		expect(detail).toContain("王小明");
 		expect(detail).toContain("相关商机");
 		expect(detail).toContain("公司资料");
 		expect(detail).toContain("公司地址");
 		expect(detail).toContain("字段建议");
+	});
+
+	test("MCP 接入页：给出两个 server 的配置片段与工具清单", async () => {
+		const page = await html("/mcp");
+
+		expect(page).toContain("MCP 接入");
+		expect(page).toContain("mcp-wechat");
+		expect(page).toContain("mcp-crm");
+		expect(page).toContain("mcpServers");
+		expect(page).toContain("stdio");
+		expect(page).toContain("list_chats");
+		expect(page).toContain("import_wechat_chat");
+		expect(page).toContain("/api/intake");
+	});
+
+	test("导航项齐全且没有登录入口", async () => {
+		const page = await html("/");
+
+		for (const label of ["首页", "联系人", "公司", "商机", "智能体", "MCP 接入"]) {
+			expect(page).toContain(label);
+		}
+
+		expect(page.includes("登录")).toBe(false);
+		expect(page.includes("注册")).toBe(false);
+		expect(page.includes("退出")).toBe(false);
 	});
 
 	test("商机列表与详情：六阶段可切换，页面无金额字段", async () => {

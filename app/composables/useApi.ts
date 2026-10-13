@@ -2,14 +2,17 @@ import type {
 	Activity,
 	ChatMessage,
 	Company,
+	CompanyListItem,
 	Contact,
 	ContactDetail,
+	ContactListItem,
 	CompanyDetail,
 	Conversation,
 	Dashboard,
 	Deal,
 	DealDetail,
 	FieldDef,
+	McpOverview,
 	Page,
 	SearchHit,
 	QueueStatus,
@@ -27,7 +30,7 @@ export function useApi() {
 		dashboard: () => $fetch<Dashboard>("/api/dashboard"),
 
 		listContacts: (query: ListQuery = {}) =>
-			$fetch<Page<Contact>>("/api/contacts", { query }),
+			$fetch<Page<ContactListItem>>("/api/contacts", { query }),
 		contactDetail: (id: string) => $fetch<ContactDetail>(`/api/contacts/${id}`),
 		createContact: (body: Record<string, unknown>) =>
 			$fetch<{ contact: Contact }>("/api/contacts", { method: "POST", body }),
@@ -35,9 +38,11 @@ export function useApi() {
 			$fetch<{ contact: Contact }>(`/api/contacts/${id}`, { method: "PUT", body }),
 		archiveContact: (id: string) =>
 			$fetch<{ archived: boolean }>(`/api/contacts/${id}`, { method: "DELETE" }),
+		restoreContact: (id: string) =>
+			$fetch<{ restored: boolean }>(`/api/contacts/${id}/restore`, { method: "POST" }),
 
 		listCompanies: (query: ListQuery = {}) =>
-			$fetch<Page<Company>>("/api/companies", { query }),
+			$fetch<Page<CompanyListItem>>("/api/companies", { query }),
 		companyDetail: (id: string) => $fetch<CompanyDetail>(`/api/companies/${id}`),
 		createCompany: (body: Record<string, unknown>) =>
 			$fetch<{ company: Company }>("/api/companies", { method: "POST", body }),
@@ -45,6 +50,8 @@ export function useApi() {
 			$fetch<{ company: Company }>(`/api/companies/${id}`, { method: "PUT", body }),
 		archiveCompany: (id: string) =>
 			$fetch<{ archived: boolean }>(`/api/companies/${id}`, { method: "DELETE" }),
+		restoreCompany: (id: string) =>
+			$fetch<{ restored: boolean }>(`/api/companies/${id}/restore`, { method: "POST" }),
 		companyOptions: (q = "") =>
 			$fetch<{ items: Company[] }>("/api/company-options", { query: { q } }),
 
@@ -104,5 +111,7 @@ export function useApi() {
 				method: "POST",
 				body: { subject, id },
 			}),
+
+		mcp: () => $fetch<McpOverview>("/api/mcp"),
 	};
 }
