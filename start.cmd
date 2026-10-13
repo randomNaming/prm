@@ -1,34 +1,38 @@
 @echo off
+rem ---------------------------------------------------------------------------
+rem  crm-mini launcher.
+rem
+rem  KEEP THIS FILE PURE ASCII. cmd.exe reads a batch file using the console code
+rem  page (936/GBK on Chinese Windows), so UTF-8 Chinese in here is decoded into
+rem  garbage and then executed as commands. All Chinese output lives in
+rem  scripts/start.mjs, which Node prints correctly.
+rem ---------------------------------------------------------------------------
 chcp 65001 >nul
 cd /d "%~dp0"
 
-rem 清空 NODE_OPTIONS，绕过沙箱注入的安全删除 shim（否则 nuxt build/dev 会被拦）
-set NODE_OPTIONS=
+rem The sandbox injects a delete-shim through NODE_OPTIONS that blocks nuxt build.
+rem scripts/start.mjs clears it for the child processes too; set CRM_KEEP_NODE_OPTIONS=1
+rem (before running this file) to keep your own NODE_OPTIONS instead.
+if not defined CRM_KEEP_NODE_OPTIONS set NODE_OPTIONS=
 
-if "%PORT%"=="" set PORT=3100
-if "%HOST%"=="" set HOST=0.0.0.0
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Node.js not found in PATH.
+  echo         Install Node.js 20 LTS or newer, then run this file again.
+  echo         Download: https://nodejs.org/
+  echo.
+  pause
+  exit /b 1
+)
 
-echo ============================================
-echo   crm-mini 启动中...
-echo   数据库: 读 .env 的 DATABASE_URL（NAS）
-echo   访问地址: http://localhost:%PORT%/
-echo ============================================
-echo.
+node "%~dp0scripts\start.mjs" %*
+set "EXITCODE=%ERRORLEVEL%"
 
-if not exist ".output\server\index.mjs" (
-  echo [1/2] 首次运行，正在构建...
-  call node node_modules\nuxt\bin\nuxt.mjs build
-  if errorlevel 1 (
-    echo 构建失败，已中止。
-    pause
-    exit /b 1
-  )
-) else (
-  echo [1/2] 已有构建产物，跳过构建。需要重建请先删除 .output 目录。
+if not "%EXITCODE%"=="0" (
+  echo.
+  echo [ERROR] Launcher exited with code %EXITCODE%.
 )
 
 echo.
-echo [2/2] 启动服务...
-node --env-file=.env .output\server\index.mjs
-
 pause
+exit /b %EXITCODE%
