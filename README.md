@@ -36,6 +36,22 @@ node --env-file=.env .output/server/index.mjs   # 单进程启动，地址取自
 
 开发模式：`bun run dev`。
 
+### Windows 一键启动
+
+双击 **`start.cmd`**，或者命令行运行它。它会依次做四件事：
+
+1. 检查 Node.js 版本、`.env` 是否存在、`DATABASE_URL` 是否填好；
+2. TCP 探测一次 MySQL，连不上就直说是端口没监听、网络不通还是主机名解析失败；
+3. `.output/server/index.mjs` 不存在时自动 `nuxt build`；
+4. 按 `.env` 里的 `HOST` / `PORT` 启动服务，并打印访问地址。
+
+Windows 上绑定 `0.0.0.0` 会额外提示「同网段的机器都能访问」。
+
+**`start.cmd` 里为什么一个中文都没有。** cmd.exe 是拿控制台代码页（中文 Windows 是 936/GBK）
+逐行读批处理文件的，文件里的 UTF-8 中文会被解成乱码，然后当成命令去执行 ——
+现象就是满屏 `'嫤锛?set' 不是内部或外部命令`。所以批处理保持纯 ASCII 只做外壳，
+中文提示全部由 `scripts/start.mjs` 输出，Node 在 Windows 控制台上按 UTF-16 写，不会乱码。
+
 ## 环境变量
 
 全部变量写在仓库根目录的 `.env`（git 忽略），`.env.example` 是它的文档。
@@ -53,23 +69,27 @@ node --env-file=.env .output/server/index.mjs   # 单进程启动，地址取自
 
 ```
 crm-mini/
+  start.cmd              Windows 双击启动（纯 ASCII 外壳，见上文说明）
   .env.example           环境变量说明
   nuxt.config.ts         Nuxt 3 配置（srcDir=app，serverDir=server）
   drizzle.config.ts      Drizzle 配置（迁移为纯 SQL）
   app/                   Vue 3 界面（Element Plus，简体中文）
-    pages/               首页 / 联系人 / 公司 / 商机 / 智能体
-    components/          表单、字段建议、Agent 对话
-    composables/         接口调用封装
+    pages/               首页 / 联系人 / 公司 / 商机 / 智能体 / MCP 接入
+    components/          表单、字段建议、Agent 对话、列表渲染、列选择器、配置片段
+    composables/         接口调用封装、列表列偏好
+    utils/               日期与人名格式化、列表列定义
     types/domain.ts      前后端共用的领域类型与中文标签（纯类型，不引入服务端代码）
   server/
     api/                 Nitro 服务端路由（REST）
-    db/schema.ts         Drizzle 表定义（8 张表）
+    db/schema.ts         Drizzle 表定义（10 张表）
     db/migrations/       纯 SQL 迁移
     plugins/background   进程内定时器，随进程启动
-    utils/               配置、环境变量、连接池、记录读写、证据写路径、队列、工作器
+    utils/               配置、环境变量、连接池、记录读写、证据写路径、队列、工作器、MCP 接入信息
   agent/                 智能体：模型连接、提示词、工具集、对话循环、后台研究
   mcp-wechat/            交付物 B（独立包，见它自己的 README）
+  mcp-crm/               写侧 MCP Server（独立包，见它自己的 README）
   scripts/migrate.mjs    迁移执行器
+  scripts/start.mjs      一键启动器（全部中文提示都在这里）
   scripts/backup.sh      mysqldump 在线热备
   tests/                 自动化验收测试
 ```
@@ -99,10 +119,27 @@ crm-mini/
 ## 界面
 
 - **首页**只有三块：推进中的商机、已逾期任务（可直接勾选完成）、近期活动（最近 20 条）。页首一句问候语加「新建联系人」。
-- **联系人 / 公司 / 商机**：列表、详情、新建、编辑、归档（软删除），按名称、邮箱、微信号做子串搜索。搜索只做子串精确匹配，不做模糊匹配与拼音。
+- **联系人 / 公司 / 商机**：列表、详情、新建、编辑、删除（软删除即归档），按名称、邮箱、微信号做子串搜索。搜索只做子串精确匹配，不做模糊匹配与拼音。
+- **列表显示哪些字段由你决定**。「显示字段」按钮里勾选，选择记在这台浏览器的 localStorage 上，刷新和下次打开都照旧，「恢复默认」一键还原。
+- **列表行尾有删除按钮**。删除是软删除：记录移出列表、不计入关联统计，但数据还在。打开「显示已归档」开关就能看到它们，在那里点「恢复」原样放回。
 - **商机阶段**固定六档：初步接触 → 需求确认 → 方案报价 → 谈判 → 成交 / 搁置。阶段变更自动写入活动。
 - **记录详情页有 Agent 标签页**：中文提问、中文回答、流式输出，思考过程默认折叠。会话按记录归属，可切换、可回看。
+- **MCP 接入页**在 `导航 → MCP 接入`，见下文。
 - 顶栏角标显示队列中（待办 + 在跑）的任务数。
+
+### 列表默认显示哪些字段
+
+默认列是「一眼要用的」，不是「库里有的」：
+
+| 列表 | 默认列 | 可另选 |
+| --- | --- | --- |
+| 联系人 | 姓名、业务角色、公司、最近更新 | 电话、微信号、邮箱、职位、地址、领英、GitHub、备注、创建时间、最近研究 |
+| 公司 | 公司名、合作角色、行业、联系人、最近更新 | 官网域名、公司地址、主营介绍、来源、创建时间 |
+
+- 「公司」列来自 `contacts.company_id` 的关联查询，没有归属时显示 `—`。
+- 「联系人」列是该公司**未归档**的人数，归档一个联系人，这个数就少一个。
+- 职位、微信号、邮箱、域名这些短期用不上的字段没有删掉，只是默认不占视野。
+- **自定义字段自动成为可勾选的列**。字段在「字段建议」里确认生效后，它的当前值会跟着列表一起返回（只取 `applied` 的事实，待确认的不显示），在「显示字段 → 自定义字段」里勾上就能看。
 
 ## 智能体
 
@@ -172,6 +209,7 @@ crm-mini/
 
 | 命令 | 作用 |
 | --- | --- |
+| `start.cmd` | Windows 一键启动：预检 → 必要时构建 → 启动（中文提示由 `scripts/start.mjs` 输出） |
 | `bun run dev` | 开发模式 |
 | `bun run build` | 构建到 `.output/` |
 | `node --env-file=.env .output/server/index.mjs` | 单进程运行，地址与端口取自 `.env` |
@@ -208,8 +246,34 @@ DATABASE_URL='mysql://crm_user:密码@主机:端口/crm_mini_test' bun test test
 | `tests/research.test.ts` | 自动研究：空字段直接写入、人工值只生成建议、安排复查、无证据不硬凑、公司研究补公司字段 |
 | `tests/agent.test.ts` | FR-4：流式正文与思考过程、工具真实执行、历史上下文、密钥缺失不抛错、步数上限 8 |
 | `tests/api-research.test.ts` | M3 端到端：新建联系人后不点击任何按钮，两分钟内自动完成研究 |
+| `tests/lists.test.ts` | 列表字段与删除：跨表列（公司名 / 联系人数）、自定义字段进 `facts`、待确认值不进列表、归档与恢复、MCP 接入信息 |
+
+**已知问题：测试之间不隔离。** 所有测试文件共用同一个测试库，且默认跑在同一个进程里，
+相互之间会 `TRUNCATE` 对方的表、共享 `process.env`。整套一起跑会出现若干「数据被清空」式的失败，
+但这些用例**单独跑都能过**。另外 `queue.test.ts` 里「模型端点失败时任务回到 pending」一条依赖
+重试耗时，偶尔会超过 bun 默认的 5 秒上限。排查某个文件时请单独指定文件路径：
+
+```bash
+DATABASE_URL='mysql://crm_user:密码@主机:端口/crm_mini_test' bun test tests/lists.test.ts
+```
 
 `tests/stub-model.ts` 是一个本地 OpenAI 兼容的假模型服务，用来在没有任何真实密钥的情况下验证整条链路。
+
+## MCP 接入（平台内提示页）
+
+导航里的 **MCP 接入** 页把两个 MCP Server 的接入信息摆在一处，不用再去翻两个包的 README：
+
+- 每个包的**当前状态**：目录在哪、`dist/index.js` 编译了没有、包内 `.env` 建了没有。
+- **配置项现状**：`WECHAT_EXPORT_DIR`、`CRM_BASE_URL`、`MCP_HTTP_PORT` 各自的值与来源
+  （进程环境变量 / 包内 `.env` / 未配置）。进程环境变量优先于包内 `.env`，与两个包自己的读取规则一致。
+- **可直接粘贴的客户端配置**：stdio 与 Streamable HTTP 两种模式各一段 JSON，路径按当前部署算好，
+  点「复制」即用。缺配置时还会给出「先执行哪几条命令」和阻塞原因。
+- 两个包各自暴露的工具清单。
+
+页面数据来自 `GET /api/mcp`，实现是 `server/utils/mcp.ts`。它只读盘、不启动任何子进程，
+所以打开页面不会有副作用，也不依赖这两个包能不能跑起来。
+
+不装 MCP 客户端也能写入：`POST /api/intake` 与 `mcp-crm` 的 `import_wechat_chat` 走同一条智能体抽取链路。
 
 ## 部署三阶段
 

@@ -27,6 +27,7 @@ const navItems = [
 	{ to: "/companies", label: "公司" },
 	{ to: "/deals", label: "商机" },
 	{ to: "/chat", label: "智能体" },
+	{ to: "/mcp", label: "MCP 接入" },
 ];
 </script>
 
