@@ -1,0 +1,40 @@
+{
+  "name": "crm-mini",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "start": "node --env-file=.env .output/server/index.mjs",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/migrate.mjs",
+    "test": "bun test tests --path-ignore-patterns=\"mcp-wechat/**\""
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.67",
+    "@element-plus/nuxt": "^1.1.5",
+    "@paralleldrive/cuid2": "^3.3.0",
+    "ai": "^7.0.137",
+    "dotenv": "^18.0.7",
+    "drizzle-orm": "^0.45.4",
+    "element-plus": "^2.14.7",
+    "mysql2": "^3.24.5",
+    "nuxt": "^3",
+    "vue": "^3.5.43",
+    "vue-router": "^5.4.0",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.6.5",
+    "drizzle-kit": "^0.31.11",
+    "typescript": "~5.9",
+    "vue-tsc": "^3.3.13"
+  }
+}

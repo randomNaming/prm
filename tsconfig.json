@@ -1,0 +1,7 @@
+{
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun", "node"]
+  },
+  "exclude": ["mcp-wechat", "dist", ".output", ".data", "node_modules"]
+}

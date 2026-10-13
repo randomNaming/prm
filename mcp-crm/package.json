@@ -1,0 +1,36 @@
+{
+  "name": "mcp-crm",
+  "version": "0.1.0",
+  "description": "CRM 接入 MCP Server：把微信等来源的聊天记录原样转发给 CRM 平台，由平台侧智能体抽取联系人与公司并建档",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "bin": {
+    "mcp-crm": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    ".env.example"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "bun run src/index.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.2.3",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}
