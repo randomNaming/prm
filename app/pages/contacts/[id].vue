@@ -201,7 +201,7 @@ async function changeStage(dealId: string, stage: string) {
 									>
 										{{ data.contact.relationshipState }}
 									</el-tag>
-									<span v-else class="crm-muted">正常（长期养着）</span>
+									<span v-else class="crm-muted">默认</span>
 								</el-descriptions-item>
 								<el-descriptions-item v-if="data.contact.repairNote" label="修复说明">
 									<span class="crm-pre">{{ data.contact.repairNote }}</span>

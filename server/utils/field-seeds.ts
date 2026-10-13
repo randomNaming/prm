@@ -131,7 +131,7 @@ export const BUILTIN_FIELD_SEEDS: BuiltinFieldSeed[] = [
 		key: "relationship_state",
 		label: "关系维护",
 		// 由人工判断，智能体不写：关系好不好不是能从聊天里读出来的事实，是使用者的判断。
-		// 留空 = 正常关系，进「长期养着」的池子（节日问候、群发营销）。
+		// 留空 = 默认（长期养着的池子：节日问候、群发营销）。
 		aliases: ["关系状态", "客户关系", "relationship"],
 		options: [RELATIONSHIP_REPAIR, "重点维护", "暂缓联系"],
 		dataType: "enum",

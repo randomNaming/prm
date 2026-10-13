@@ -136,7 +136,7 @@ function submit() {
 				filterable
 				allow-create
 				default-first-option
-				placeholder="留空 = 正常关系，进长期养着的池子；也可直接输入新标签"
+				placeholder="默认（不用标）；也可直接输入新标签"
 				style="width: 100%"
 			>
 				<el-option

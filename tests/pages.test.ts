@@ -125,8 +125,8 @@ describe.skipIf(!built)("页面渲染：简体中文、无金额、可导航", (
 		expect(detail).toContain("活动时间线");
 		expect(detail).toContain("聊天留底");
 		expect(detail).toContain("关系维护");
-		// 留空是「正常关系」这个有意义的默认值，不是缺数据。
-		expect(detail).toContain("正常（长期养着）");
+		// 留空是「默认」这个有意义的档位，不是缺数据。
+		expect(detail).toContain("默认");
 		expect(detail).toContain("Agent");
 		expect(detail).toContain("产品经理");
 		expect(detail).toContain("wang@example.com");
@@ -146,9 +146,9 @@ describe.skipIf(!built)("页面渲染：简体中文、无金额、可导航", (
 		expect(list).toContain("恢复默认");
 		expect(list).toContain("选择会记在这台浏览器上");
 
-		// 关系维护的筛选就是在列表上「捞人」的入口，含留空那一档。
+		// 关系维护的筛选就是在列表上「捞人」的入口，含「默认」那一档。
 		expect(list).toContain("关系维护：全部");
-		expect(list).toContain("留空（长期养着）");
+		expect(list).toContain("默认");
 
 		// 默认勾选的列：姓名、业务角色、公司、最近更新。
 		expect(list).toContain("业务角色");

@@ -142,7 +142,7 @@ const total = computed(() => data.value?.total ?? 0);
 					style="width: 180px"
 					@change="search"
 				>
-					<el-option label="留空（长期养着）" :value="RELATIONSHIP_BLANK" />
+					<el-option label="默认" :value="RELATIONSHIP_BLANK" />
 					<el-option
 						v-for="option in relationshipOptions"
 						:key="option"

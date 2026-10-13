@@ -75,7 +75,7 @@ export const listQuery = z.object({
 		.default(false),
 	/**
 	 * 按关系维护筛选联系人。
-	 * 传 `__blank__` 表示「留空」那一档 —— 也就是长期养着、能进群发池的人。
+	 * 传 `__blank__` 表示「默认」那一档 —— 也就是长期养着、能进群发池的人。
 	 */
 	relationship: z.string().trim().max(32).optional(),
 });

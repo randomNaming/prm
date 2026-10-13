@@ -222,7 +222,7 @@ describe.skipIf(!built)("列表删除：归档后移出列表，可原样恢复"
 	});
 });
 
-describe.skipIf(!built)("关系维护：留空 = 长期养着，标记 = 只标例外", () => {
+describe.skipIf(!built)("关系维护：「默认」是有含义的档位，标记只标例外", () => {
 	test("登记在字段表里，选项可扩，且智能体不写", async () => {
 		const fields = await call("/api/fields?scope=contact");
 		const state = (fields.payload.fields as Row[]).find((f) => f.key === "relationship_state");

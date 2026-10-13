@@ -167,13 +167,13 @@ export const CONTACT_COLUMNS: ListColumn<ContactListItem>[] = [
 		value: (row) => (row.lastResearchedAt ? formatRelative(row.lastResearchedAt) : "尚未研究"),
 	},
 	{
-		// 留空 = 正常关系，进「长期养着」的池子，所以空格显示 —。
+		// 没标的人显示「默认」而不是 —：留空是有含义的档位，不是缺数据。
 		key: "relationshipState",
 		label: "关系维护",
 		minWidth: 110,
 		defaultVisible: false,
 		kind: "tag",
-		value: (row) => row.relationshipState ?? "",
+		value: (row) => row.relationshipState ?? "默认",
 	},
 	{
 		key: "repairNote",

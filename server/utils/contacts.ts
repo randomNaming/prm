@@ -99,7 +99,7 @@ export async function listContacts(query: ListQuery): Promise<Page<ContactListIt
 		filters.push(sql`(${name} OR ${email} OR ${wechat})`);
 	}
 
-	// 关系维护筛选：__blank__ 是「留空」那一档，也就是长期养着的人。
+	// 关系维护筛选：__blank__ 是「默认」那一档，也就是长期养着的人。
 	if (query.relationship === RELATIONSHIP_BLANK) {
 		filters.push(isNull(contacts.relationshipState));
 	} else if (query.relationship) {
