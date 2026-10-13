@@ -1,5 +1,8 @@
-import { appendMessage, createConversation, conversationMessages } from "../server/utils/chat";
+import { appendMessage, attachConversation, createConversation, conversationMessages } from "../server/utils/chat";
+import { createActivity } from "../server/utils/activities";
+import { getContact } from "../server/utils/contacts";
 import { CONFIG } from "../server/utils/config";
+import { digestIntakeText, intakeTitle } from "../server/utils/intake-archive";
 import type { ChatToolCall } from "../app/types/domain";
 import { generateText, stepCountIs, type ModelMessage } from "ai";
 import { AgentDisabledError, agentModel } from "./model";
@@ -24,6 +27,8 @@ export type IntakeToolCall = {
 export type IntakeResult = {
 	conversationId: string;
 	messageId: string;
+	/** 这一轮落到哪位联系人身上。没认出来时为 null，会话也就挂不到人。 */
+	contactId: string | null;
 	summary: string;
 	toolCalls: IntakeToolCall[];
 	/** 各工具调用次数，方便验收时一眼看清建了什么。 */
@@ -34,6 +39,30 @@ export type IntakeResult = {
 	};
 	tokens: number | null;
 };
+
+/**
+ * 这一轮导入最终归到谁名下。
+ *
+ * ensure_contact 无论新建还是命中既有记录都会回 id，两种都算数 ——
+ * 二次导入同一个人时命中的是既有记录，此时更要把留底挂上去。
+ * 优先取新建的那条，避免一次导入里认了多个人时挂错。
+ */
+export function pickContactId(toolCalls: IntakeToolCall[]): string | null {
+	const created: string[] = [];
+	const matched: string[] = [];
+
+	for (const call of toolCalls) {
+		if (call.name !== "ensure_contact") continue;
+
+		const payload = call.result as Record<string, unknown> | null;
+		const id = payload && typeof payload.id === "string" ? payload.id : null;
+		if (!id) continue;
+
+		(payload?.created === true ? created : matched).push(id);
+	}
+
+	return created[0] ?? matched[0] ?? null;
+}
 
 function describeError(error: unknown): string {
 	if (error instanceof AgentDisabledError) return error.message;
@@ -144,9 +173,34 @@ export async function runIntake(input: IntakeInput): Promise<IntakeResult> {
 		),
 	});
 
+	// 留底：把会话挂到人身上，标题带上「多少条 + 覆盖区间」。
+	// 会话是在抽取之前建的，那时还不知道是谁，所以只能在这里回填。
+	const digest = digestIntakeText(input.text);
+	const title = intakeTitle(input.person, digest);
+	const contactId = pickContactId(toolCalls);
+	const contact = contactId ? await getContact(contactId) : null;
+	const companyId = contact?.companyId ?? null;
+
+	await attachConversation({ conversationId: conversation.id, contactId, companyId, title });
+
+	// 时间线上的锚点由服务端确定性地写，不交给模型：漏写就没有入口，
+	// 而且「来源文件、条数、覆盖区间」这些元信息不该由模型转述。
+	if (contactId) {
+		await createActivity({
+			kind: "chat_log",
+			title,
+			body: summary || null,
+			contactId,
+			companyId,
+			dealId: null,
+			dueAt: null,
+		});
+	}
+
 	return {
 		conversationId: conversation.id,
 		messageId: assistant.id,
+		contactId,
 		summary,
 		toolCalls,
 		counts,

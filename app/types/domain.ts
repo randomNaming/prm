@@ -27,7 +27,7 @@ export function dealStatusOfStage(stage: DealStage): DealStatus {
 	return "open";
 }
 
-export const ACTIVITY_KINDS = ["note", "task", "stage_change", "email"] as const;
+export const ACTIVITY_KINDS = ["note", "task", "stage_change", "email", "chat_log"] as const;
 
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
@@ -36,7 +36,11 @@ export const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
 	task: "任务",
 	stage_change: "阶段变更",
 	email: "邮件",
+	chat_log: "聊天导入",
 };
+
+/** 只读活动：由服务端在导入完成时写入，界面上不提供编辑入口。 */
+export const READONLY_ACTIVITY_KINDS: readonly ActivityKind[] = ["stage_change", "chat_log"];
 
 export const FACT_FIELDS = [
 	"title",
@@ -304,6 +308,21 @@ export type QueueStatus = {
 	model: string;
 };
 
+/**
+ * 一次聊天导入留下的只读留底。
+ *
+ * 原文本身存在 messages 里（对话的 user 消息），这里只带出「什么时候导的、导的哪份文件、
+ * 覆盖了哪段时间」这些索引信息，好让二次激活时先看时间差，再决定要不要翻全文。
+ */
+export type IntakeArchive = {
+	conversationId: string;
+	/** 会话标题，形如「微信记录导入：David McGowan（126 条，2026-08-18 ~ 2026-10-13）」。 */
+	title: string;
+	importedAt: number;
+	/** 智能体这一轮的中文摘要。 */
+	summary: string | null;
+};
+
 export type ContactDetail = {
 	contact: Contact;
 	company: Company | null;
@@ -311,6 +330,8 @@ export type ContactDetail = {
 	activities: Activity[];
 	facts: ContactFact[];
 	researching: boolean;
+	/** 这个联系人身上历次聊天导入的留底，按导入时间倒序。 */
+	archives: IntakeArchive[];
 };
 
 export type CompanyDetail = {

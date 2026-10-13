@@ -123,6 +123,7 @@ describe.skipIf(!built)("页面渲染：简体中文、无金额、可导航", (
 		expect(detail).toContain("基本信息");
 		expect(detail).toContain("字段建议");
 		expect(detail).toContain("活动时间线");
+		expect(detail).toContain("聊天留底");
 		expect(detail).toContain("Agent");
 		expect(detail).toContain("产品经理");
 		expect(detail).toContain("wang@example.com");

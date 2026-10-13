@@ -222,6 +222,19 @@ describe.skipIf(!built)("列表删除：归档后移出列表，可原样恢复"
 	});
 });
 
+describe.skipIf(!built)("只读留底：系统写的活动类型不接受手工创建", () => {
+	test("chat_log / stage_change 被拒，普通备注照常", async () => {
+		const chatLog = await post("/api/activities", { kind: "chat_log", title: "伪造留底" });
+		expect(chatLog.status).toBe(400);
+
+		const stage = await post("/api/activities", { kind: "stage_change", title: "伪造阶段变更" });
+		expect(stage.status).toBe(400);
+
+		const note = await post("/api/activities", { kind: "note", title: "正常备注" });
+		expect(note.status).toBe(200);
+	});
+});
+
 describe.skipIf(!built)("MCP 接入提示：平台把两个 server 的可用配置算出来", () => {
 	test("返回两个方向相反的 server", async () => {
 		const { status, payload } = await call("/api/mcp");

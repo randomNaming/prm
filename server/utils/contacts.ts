@@ -19,6 +19,7 @@ import {
 } from "../db/schema";
 import { db } from "./db";
 import { addFieldOption } from "./fields";
+import { intakeArchives } from "./intake-archive";
 import { appliedFactMap } from "./list-facts";
 import { newId, nowMs } from "./ids";
 import {
@@ -414,13 +415,14 @@ export async function contactDetail(id: string): Promise<ContactDetail | null> {
 	const contact = await getContact(id);
 	if (!contact) return null;
 
-	const [company, deals, activities, facts, researching] = await Promise.all([
+	const [company, deals, activities, facts, researching, archives] = await Promise.all([
 		contactCompany(contact.companyId),
 		contactDeals(id),
 		contactActivities(id, 50),
 		contactFactsFor(id),
 		contactIsResearching(id),
+		intakeArchives(id),
 	]);
 
-	return { contact, company, deals, activities, facts, researching };
+	return { contact, company, deals, activities, facts, researching, archives };
 }

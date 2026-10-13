@@ -169,7 +169,8 @@ export function crmTools() {
 				"1) 永不覆盖人工录入的值——字段已有值时只会存成建议，等人在界面上确认；",
 				"2) 被拒绝过的同值不再提；",
 				"3) 没有一手来源不写——evidence 必须含来源类型与库内原文摘录。",
-				"field 用字段表里的键或名字（电话/手机/联系电话/phone 都指同一个字段）。字段表里没有的字段，先调 propose_field。",
+				"field 用字段表里的键或名字：电话、联系电话、phone 指同一个字段；手机、手机号、cell、mobile 指「手机」；家庭电话、home 指「家庭电话」；工作电话、办公电话、座机、office 指「工作电话」。号码带类型标注时写到对应的类型字段，不要都写进「电话」。字段表里没有的字段，先调 propose_field。",
+				"value 逐字照抄原文，只放值本身：不要加「（手机）」这类标签，也不要把两个号码拼进同一条 value。",
 			].join(""),
 			inputSchema: z.object({
 				contact_id: z.string().trim().min(1),

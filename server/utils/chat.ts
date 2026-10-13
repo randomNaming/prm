@@ -93,6 +93,28 @@ export async function conversationMessages(
 	return rows.map(toMessage);
 }
 
+/**
+ * 把会话挂到记录上，并可顺带改写标题。
+ *
+ * 微信导入是「先建会话、再抽取出联系人」，所以只能在跑完之后回填——
+ * 不回填的话这条会话三个外键全为 NULL，只会落进全局对话，联系人页面上永远看不到它。
+ */
+export async function attachConversation(input: {
+	conversationId: string;
+	contactId: string | null;
+	companyId: string | null;
+	title?: string;
+}): Promise<void> {
+	await db()
+		.update(conversations)
+		.set({
+			contactId: input.contactId,
+			companyId: input.companyId,
+			...(input.title ? { title: input.title } : {}),
+		})
+		.where(eq(conversations.id, input.conversationId));
+}
+
 export async function appendMessage(input: {
 	conversationId: string;
 	role: "user" | "assistant";

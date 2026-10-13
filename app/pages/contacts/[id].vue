@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ACTIVITY_KIND_LABELS, DEAL_STAGES, FACT_FIELDS, FACT_FIELD_LABELS } from "~/types/domain";
+import type { IntakeArchive } from "~/types/domain";
 
 const api = useApi();
 const route = useRoute();
@@ -40,6 +41,37 @@ const factBusy = ref(false);
 const researchBusy = ref(false);
 const noteTitle = ref("");
 const noteBody = ref("");
+const archiveBusy = ref("");
+const openedArchive = ref("");
+const archiveText = ref("");
+const archiveError = ref("");
+
+/**
+ * 聊天留底只读：原文存在会话的 user 消息里，按需取回，
+ * 不塞进详情接口 —— 一段导出动辄上万字。
+ */
+async function toggleArchive(item: IntakeArchive) {
+	if (openedArchive.value === item.conversationId) {
+		openedArchive.value = "";
+
+		return;
+	}
+
+	archiveBusy.value = item.conversationId;
+	archiveError.value = "";
+
+	try {
+		const result = await api.messages(item.conversationId);
+		const original = result.messages.find((message) => message.role === "user");
+
+		archiveText.value = original?.content ?? "（这条留底里没有找到原文）";
+		openedArchive.value = item.conversationId;
+	} catch (error) {
+		archiveError.value = error instanceof Error ? error.message : "原文读取失败。";
+	} finally {
+		archiveBusy.value = "";
+	}
+}
 
 async function editContact(payload: Record<string, unknown>) {
 	submitting.value = true;
@@ -242,12 +274,53 @@ async function changeStage(dealId: string, stage: string) {
 						<div>
 							<el-tag size="small" effect="plain">{{ ACTIVITY_KIND_LABELS[activity.kind] }}</el-tag>
 							<span class="crm-activity-title">{{ activity.title }}</span>
+							<el-button
+								v-if="activity.kind === 'chat_log'"
+								link
+								type="primary"
+								size="small"
+								@click="activeTab = 'archive'"
+							>
+								看留底
+							</el-button>
 						</div>
 						<div v-if="activity.body" class="crm-quote">{{ activity.body }}</div>
 						<div class="crm-muted">
 							{{ formatDateTime(activity.createdAt) }}
 							<template v-if="activity.dueAt"> · 截止 {{ formatDateTime(activity.dueAt) }}</template>
 						</div>
+					</div>
+				</el-tab-pane>
+
+				<el-tab-pane name="archive">
+					<template #label>
+						聊天留底
+						<el-badge v-if="data.archives.length > 0" :value="data.archives.length" />
+					</template>
+
+					<p class="crm-muted crm-archive__hint">
+						历次导入的聊天原文，只读，不可编辑。原文存在会话记录里，不进备注、也不进活动正文 ——
+						想回看当时聊到哪、隔了多久，从这里进。
+					</p>
+
+					<el-alert v-if="archiveError" type="error" :closable="false" show-icon :title="archiveError" />
+
+					<el-empty v-if="data.archives.length === 0" description="还没有导入过聊天记录" />
+
+					<div v-for="item in data.archives" :key="item.conversationId" class="crm-card crm-archive">
+						<div class="crm-spread">
+							<strong class="crm-archive__title">{{ item.title }}</strong>
+							<el-button
+								size="small"
+								:loading="archiveBusy === item.conversationId"
+								@click="toggleArchive(item)"
+							>
+								{{ openedArchive === item.conversationId ? "收起原文" : "查看原文" }}
+							</el-button>
+						</div>
+						<div class="crm-muted crm-archive__meta">导入于 {{ formatDateTime(item.importedAt) }}</div>
+						<p v-if="item.summary" class="crm-archive__summary">{{ item.summary }}</p>
+						<pre v-if="openedArchive === item.conversationId" class="crm-archive__text">{{ archiveText }}</pre>
 					</div>
 				</el-tab-pane>
 
@@ -294,5 +367,42 @@ async function changeStage(dealId: string, stage: string) {
 
 .crm-activity-title {
 	margin-left: 6px;
+}
+
+.crm-archive__hint {
+	margin: 0 0 12px;
+	line-height: 1.7;
+}
+
+.crm-archive {
+	margin-bottom: 12px;
+}
+
+.crm-archive__title {
+	font-size: 14px;
+}
+
+.crm-archive__meta {
+	font-size: 12px;
+	margin-top: 4px;
+}
+
+.crm-archive__summary {
+	margin: 8px 0 0;
+	line-height: 1.7;
+	font-size: 13px;
+}
+
+.crm-archive__text {
+	margin: 12px 0 0;
+	padding: 12px;
+	max-height: 460px;
+	overflow: auto;
+	background: var(--crm-surface);
+	border-radius: 6px;
+	font-size: 12px;
+	line-height: 1.7;
+	white-space: pre-wrap;
+	word-break: break-word;
 }
 </style>
