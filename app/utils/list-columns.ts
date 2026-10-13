@@ -31,6 +31,8 @@ export const CONTACT_BUILTIN_FIELD_KEYS = [
 	"wechat_id",
 	"address",
 	"business_role",
+	"relationship_state",
+	"repair_note",
 	"linkedin",
 	"github",
 ] as const;
@@ -163,6 +165,23 @@ export const CONTACT_COLUMNS: ListColumn<ContactListItem>[] = [
 		defaultVisible: false,
 		kind: "text",
 		value: (row) => (row.lastResearchedAt ? formatRelative(row.lastResearchedAt) : "尚未研究"),
+	},
+	{
+		// 留空 = 正常关系，进「长期养着」的池子，所以空格显示 —。
+		key: "relationshipState",
+		label: "关系维护",
+		minWidth: 110,
+		defaultVisible: false,
+		kind: "tag",
+		value: (row) => row.relationshipState ?? "",
+	},
+	{
+		key: "repairNote",
+		label: "修复说明",
+		minWidth: 220,
+		defaultVisible: false,
+		kind: "text",
+		value: (row) => row.repairNote ?? "",
 	},
 ];
 

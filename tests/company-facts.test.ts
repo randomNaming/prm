@@ -178,6 +178,8 @@ describe("联系人地址字段", () => {
 			wechatId: null,
 			address: null,
 			businessRole: null,
+			relationshipState: null,
+			repairNote: null,
 			linkedin: null,
 			github: null,
 			notes: "【地址】深圳市宝安区航城街道普顺达科技大楼7楼",

@@ -43,6 +43,10 @@ export const contacts = mysqlTable(
 		wechatId: varchar("wechat_id", { length: 191 }),
 		address: varchar("address", { length: 191 }),
 		businessRole: varchar("business_role", { length: 32 }),
+		/** 关系维护：留空 = 正常关系，进「长期养着」的池子。 */
+		relationshipState: varchar("relationship_state", { length: 32 }),
+		/** 选了「关系待修复」时，人工写清要修什么。 */
+		repairNote: varchar("repair_note", { length: 191 }),
 		linkedin: varchar("linkedin", { length: 191 }),
 		github: varchar("github", { length: 191 }),
 		notes: text("notes"),

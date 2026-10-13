@@ -53,6 +53,8 @@ export async function contactFixture(input: Partial<ContactInput> = {}) {
 		wechatId: input.wechatId ?? null,
 		address: input.address ?? null,
 		businessRole: input.businessRole ?? null,
+		relationshipState: input.relationshipState ?? null,
+		repairNote: input.repairNote ?? null,
 		linkedin: input.linkedin ?? null,
 		github: input.github ?? null,
 		notes: input.notes ?? null,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Company, Contact } from "~/types/domain";
+import { RELATIONSHIP_REPAIR } from "~/types/domain";
 
 const props = defineProps<{
 	contact?: Contact | null;
@@ -14,6 +15,7 @@ const emit = defineEmits<{
 const api = useApi();
 const companies = ref<Company[]>([]);
 const relationOptions = ref<string[]>([]);
+const relationshipOptions = ref<string[]>([]);
 
 const form = reactive({
 	firstName: "",
@@ -24,11 +26,16 @@ const form = reactive({
 	wechatId: "",
 	address: "",
 	businessRole: "",
+	relationshipState: "",
+	repairNote: "",
 	linkedin: "",
 	github: "",
 	notes: "",
 	companyId: "",
 });
+
+/** 只有选中「关系待修复」才让人填修复说明。 */
+const needsRepair = computed(() => form.relationshipState === RELATIONSHIP_REPAIR);
 
 watch(
 	() => props.contact,
@@ -41,6 +48,8 @@ watch(
 		form.wechatId = contact?.wechatId ?? "";
 		form.address = contact?.address ?? "";
 		form.businessRole = contact?.businessRole ?? "";
+		form.relationshipState = contact?.relationshipState ?? "";
+		form.repairNote = contact?.repairNote ?? "";
 		form.linkedin = contact?.linkedin ?? "";
 		form.github = contact?.github ?? "";
 		form.notes = contact?.notes ?? "";
@@ -58,14 +67,22 @@ onMounted(async () => {
 		companies.value = companyResult.items;
 		relationOptions.value =
 			fieldResult.fields.find((field) => field.key === "business_role")?.options ?? [];
+		relationshipOptions.value =
+			fieldResult.fields.find((field) => field.key === "relationship_state")?.options ?? [];
 	} catch {
 		companies.value = [];
 		relationOptions.value = [];
+		relationshipOptions.value = [];
 	}
 });
 
 function submit() {
-	emit("submit", { ...form, companyId: form.companyId || null });
+	emit("submit", {
+		...form,
+		companyId: form.companyId || null,
+		// 关系没标待修复时不提交说明，服务端也会一并清掉。
+		repairNote: needsRepair.value ? form.repairNote : "",
+	});
 }
 </script>
 
@@ -111,6 +128,34 @@ function submit() {
 			>
 				<el-option v-for="option in relationOptions" :key="option" :label="option" :value="option" />
 			</el-select>
+		</el-form-item>
+		<el-form-item label="关系维护">
+			<el-select
+				v-model="form.relationshipState"
+				clearable
+				filterable
+				allow-create
+				default-first-option
+				placeholder="留空 = 正常关系，进长期养着的池子；也可直接输入新标签"
+				style="width: 100%"
+			>
+				<el-option
+					v-for="option in relationshipOptions"
+					:key="option"
+					:label="option"
+					:value="option"
+				/>
+			</el-select>
+		</el-form-item>
+		<el-form-item v-if="needsRepair" label="修复说明">
+			<el-input
+				v-model="form.repairNote"
+				type="textarea"
+				:rows="3"
+				maxlength="191"
+				show-word-limit
+				placeholder="要修什么、等到什么条件再谈。例如：计步精度不达标被差评（未退款），等精度达标的新品。"
+			/>
 		</el-form-item>
 		<el-form-item label="领英">
 			<el-input v-model="form.linkedin" maxlength="191" />

@@ -302,3 +302,46 @@ describe("电话按类型拆开：手机不再被「电话」吃掉", () => {
 		expect(Object.values(row)).not.toContain("708-557-7187");
 	});
 });
+
+describe("关系维护由人工填写，智能体不写", () => {
+	test("智能体走 record_fact 写「关系维护」会被拒", async () => {
+		const contact = await contactFixture();
+
+		const refused = await recordFact({
+			contactId: contact.id,
+			field: "关系维护",
+			value: "关系待修复",
+			evidence: [evidence("wechat.chat", "This is not a smart watch", "d@a.txt")],
+			source: "agent",
+		});
+
+		expect(refused.stored).toBe(false);
+		expect(refused.reason).toContain("由人工填写");
+	});
+
+	test("「修复说明」同样不开放给智能体", async () => {
+		const contact = await contactFixture();
+
+		const refused = await recordFact({
+			contactId: contact.id,
+			field: "修复说明",
+			value: "等新一代计步方案",
+			evidence: [evidence()],
+			source: "agent",
+		});
+
+		expect(refused.stored).toBe(false);
+		expect(refused.reason).toContain("由人工填写");
+	});
+
+	test("登记表里是内置、生效、不可被智能体写", async () => {
+		const defs = await listFieldDefs({ scope: "contact" });
+		const state = defs.find((def) => def.key === "relationship_state");
+
+		expect(state?.label).toBe("关系维护");
+		expect(state?.origin).toBe("builtin");
+		expect(state?.status).toBe("active");
+		expect(state?.agentWritable).toBe(false);
+		expect(state?.options).toContain("关系待修复");
+	});
+});

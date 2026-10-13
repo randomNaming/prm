@@ -23,6 +23,8 @@ export type ListQuery = {
 	page?: number;
 	pageSize?: number;
 	archived?: boolean;
+	/** 按关系维护筛选；RELATIONSHIP_BLANK 表示「留空」那一档。 */
+	relationship?: string;
 };
 
 export function useApi() {

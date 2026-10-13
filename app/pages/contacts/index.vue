@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ContactListItem } from "~/types/domain";
+import { RELATIONSHIP_BLANK } from "~/types/domain";
 import {
 	CONTACT_BUILTIN_FIELD_KEYS,
 	CONTACT_COLUMNS,
@@ -14,17 +15,29 @@ const router = useRouter();
 const q = ref(String(route.query.q ?? ""));
 const page = ref(Number(route.query.page ?? 1));
 const archived = ref(route.query.archived === "true");
+const relationship = ref(String(route.query.relationship ?? ""));
 const showCreate = ref(false);
 const submitting = ref(false);
 const errorText = ref("");
 
 const { data, refresh } = await useAsyncData(
 	"contacts-list",
-	() => api.listContacts({ q: q.value, page: page.value, archived: archived.value }),
-	{ watch: [q, page, archived] },
+	() =>
+		api.listContacts({
+			q: q.value,
+			page: page.value,
+			archived: archived.value,
+			relationship: relationship.value || undefined,
+		}),
+	{ watch: [q, page, archived, relationship] },
 );
 
 const { data: fieldDefs } = await useAsyncData("contact-list-fields", () => api.fields("contact"));
+
+const relationshipOptions = computed(
+	() =>
+		fieldDefs.value?.fields.find((field) => field.key === "relationship_state")?.options ?? [],
+);
 
 const columns = computed<ListColumn<ContactListItem>[]>(() => [
 	...CONTACT_COLUMNS,
@@ -46,6 +59,7 @@ function syncQuery() {
 			q: q.value || undefined,
 			page: page.value,
 			archived: archived.value ? "true" : undefined,
+			relationship: relationship.value || undefined,
 		},
 	});
 }
@@ -121,6 +135,21 @@ const total = computed(() => data.value?.total ?? 0);
 					@keyup.enter="search"
 					@clear="search"
 				/>
+				<el-select
+					v-model="relationship"
+					clearable
+					placeholder="关系维护：全部"
+					style="width: 180px"
+					@change="search"
+				>
+					<el-option label="留空（长期养着）" :value="RELATIONSHIP_BLANK" />
+					<el-option
+						v-for="option in relationshipOptions"
+						:key="option"
+						:label="option"
+						:value="option"
+					/>
+				</el-select>
 				<el-button @click="search">搜索</el-button>
 			</div>
 			<div class="crm-row">

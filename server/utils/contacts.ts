@@ -9,6 +9,7 @@ import type {
 	Deal,
 	Page,
 } from "../../app/types/domain";
+import { RELATIONSHIP_BLANK } from "../../app/types/domain";
 import {
 	activities,
 	companies,
@@ -98,6 +99,13 @@ export async function listContacts(query: ListQuery): Promise<Page<ContactListIt
 		filters.push(sql`(${name} OR ${email} OR ${wechat})`);
 	}
 
+	// 关系维护筛选：__blank__ 是「留空」那一档，也就是长期养着的人。
+	if (query.relationship === RELATIONSHIP_BLANK) {
+		filters.push(isNull(contacts.relationshipState));
+	} else if (query.relationship) {
+		filters.push(eq(contacts.relationshipState, query.relationship));
+	}
+
 	const where = and(...filters);
 
 	const [rows, totals] = await Promise.all([
@@ -150,6 +158,8 @@ export async function createContact(input: ContactInput): Promise<Contact> {
 		wechatId: input.wechatId,
 		address: input.address,
 		businessRole: input.businessRole,
+		relationshipState: input.relationshipState,
+		repairNote: input.repairNote,
 		linkedin: input.linkedin,
 		github: input.github,
 		notes: input.notes,
@@ -158,6 +168,7 @@ export async function createContact(input: ContactInput): Promise<Contact> {
 	});
 
 	await rememberRoleOption("contact", "business_role", input.businessRole);
+	await rememberRoleOption("contact", "relationship_state", input.relationshipState);
 
 	const created = await getContact(id);
 	if (!created) throw new Error("联系人创建失败。");
@@ -242,6 +253,8 @@ export async function ensureContact(input: EnsureContactLookup): Promise<EnsureC
 		wechatId,
 		address: null,
 		businessRole: null,
+		relationshipState: null,
+		repairNote: null,
 		linkedin: null,
 		github: null,
 		notes: null,
@@ -267,6 +280,9 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
 			wechatId: input.wechatId,
 			address: input.address,
 			businessRole: input.businessRole,
+			relationshipState: input.relationshipState,
+			// 关系恢复正常后把修复说明一起清掉，不留过期的旧说明。
+			repairNote: input.relationshipState ? input.repairNote : null,
 			linkedin: input.linkedin,
 			github: input.github,
 			notes: input.notes,
@@ -275,6 +291,7 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
 		.where(eq(contacts.id, id));
 
 	await rememberRoleOption("contact", "business_role", input.businessRole);
+	await rememberRoleOption("contact", "relationship_state", input.relationshipState);
 
 	return getContact(id);
 }

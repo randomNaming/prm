@@ -42,6 +42,20 @@ export const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
 /** 只读活动：由服务端在导入完成时写入，界面上不提供编辑入口。 */
 export const READONLY_ACTIVITY_KINDS: readonly ActivityKind[] = ["stage_change", "chat_log"];
 
+/**
+ * 关系维护里唯一带联动的那一项：选中它才展开「修复说明」。
+ *
+ * 下拉选项本身登记在 field_defs（可以自己加词），但「哪一项要展开说明」是界面行为，
+ * 只能写在代码里，所以这里固定一个字符串当契约，前后端与字段种子共用它。
+ */
+export const RELATIONSHIP_REPAIR = "关系待修复";
+
+/**
+ * 按「关系维护」筛选时，用它表示「留空」那一档 ——
+ * 也就是长期养着、可以直接丢进群发池的人。
+ */
+export const RELATIONSHIP_BLANK = "__blank__";
+
 export const FACT_FIELDS = [
 	"title",
 	"email",
@@ -145,6 +159,10 @@ export type Contact = {
 	wechatId: string | null;
 	address: string | null;
 	businessRole: string | null;
+	/** 关系维护。留空 = 正常关系，进「长期养着」的池子（节日问候、群发营销）。 */
+	relationshipState: string | null;
+	/** 关系待修复时手写的内容：要修什么、等到什么条件。 */
+	repairNote: string | null;
 	linkedin: string | null;
 	github: string | null;
 	notes: string | null;

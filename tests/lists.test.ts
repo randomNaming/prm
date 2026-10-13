@@ -222,6 +222,78 @@ describe.skipIf(!built)("列表删除：归档后移出列表，可原样恢复"
 	});
 });
 
+describe.skipIf(!built)("关系维护：留空 = 长期养着，标记 = 只标例外", () => {
+	test("登记在字段表里，选项可扩，且智能体不写", async () => {
+		const fields = await call("/api/fields?scope=contact");
+		const state = (fields.payload.fields as Row[]).find((f) => f.key === "relationship_state");
+
+		expect(state).toBeDefined();
+		expect(state?.label).toBe("关系维护");
+		expect(state?.options).toContain("关系待修复");
+		expect(state?.agentWritable).toBe(false);
+	});
+
+	test("留空意味着什么都还没标，不是缺数据", async () => {
+		const created = await post("/api/contacts", { firstName: "留空的人" });
+
+		expect(created.status).toBe(200);
+		expect((created.payload.contact as Row).relationshipState).toBeNull();
+		expect((created.payload.contact as Row).repairNote).toBeNull();
+	});
+
+	test("标成关系待修复并写修复说明，能存能读", async () => {
+		const created = await post("/api/contacts", {
+			firstName: "关系坏了的人",
+			relationshipState: "关系待修复",
+			repairNote: "计步精度不达标被差评，等精度达标的新品再谈。",
+		});
+
+		const id = (created.payload.contact as Row).id as string;
+		expect((created.payload.contact as Row).relationshipState).toBe("关系待修复");
+		expect((created.payload.contact as Row).repairNote).toContain("计步精度");
+
+		const detail = await call(`/api/contacts/${id}`);
+		expect((detail.payload.contact as Row).repairNote).toContain("等精度达标的新品");
+	});
+
+	test("关系恢复正常后，过期的修复说明一并清掉", async () => {
+		const created = await post("/api/contacts", {
+			firstName: "修好了的人",
+			relationshipState: "关系待修复",
+			repairNote: "等新品",
+		});
+		const id = (created.payload.contact as Row).id as string;
+
+		const updated = await call(`/api/contacts/${id}`, {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ firstName: "修好了的人", relationshipState: null, repairNote: null }),
+		});
+
+		expect((updated.payload.contact as Row).relationshipState).toBeNull();
+		expect((updated.payload.contact as Row).repairNote).toBeNull();
+	});
+
+	test("新增的关系维护标签会进选项表，下次能直接选", async () => {
+		await post("/api/contacts", { firstName: "自定标签的人", relationshipState: "老客户返单期" });
+
+		const fields = await call("/api/fields?scope=contact");
+		const state = (fields.payload.fields as Row[]).find((f) => f.key === "relationship_state");
+
+		expect(state?.options).toContain("老客户返单期");
+	});
+
+	test("列表能按关系维护筛选，包括「留空」那一档", async () => {
+		const tagged = await list("/api/contacts?relationship=关系待修复");
+		expect(tagged.items.length).toBeGreaterThan(0);
+		expect(tagged.items.every((row) => row.relationshipState === "关系待修复")).toBe(true);
+
+		const blank = await list("/api/contacts?relationship=__blank__");
+		expect(blank.items.every((row) => row.relationshipState === null)).toBe(true);
+		expect(blank.items.some((row) => row.relationshipState === "关系待修复")).toBe(false);
+	});
+});
+
 describe.skipIf(!built)("只读留底：系统写的活动类型不接受手工创建", () => {
 	test("chat_log / stage_change 被拒，普通备注照常", async () => {
 		const chatLog = await post("/api/activities", { kind: "chat_log", title: "伪造留底" });

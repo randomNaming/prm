@@ -21,6 +21,8 @@ export const contactInput = z.object({
 	wechatId: blankToNull(CONFIG.text.maxFieldLength),
 	address: blankToNull(CONFIG.text.maxFieldLength),
 	businessRole: blankToNull(32),
+	relationshipState: blankToNull(32),
+	repairNote: blankToNull(CONFIG.text.maxFieldLength),
 	linkedin: blankToNull(CONFIG.text.maxFieldLength),
 	github: blankToNull(CONFIG.text.maxFieldLength),
 	notes: blankToNull(CONFIG.text.maxNoteLength),
@@ -71,6 +73,11 @@ export const listQuery = z.object({
 		.preprocess((value) => (typeof value === "string" ? value === "true" : value), z.boolean())
 		.optional()
 		.default(false),
+	/**
+	 * 按关系维护筛选联系人。
+	 * 传 `__blank__` 表示「留空」那一档 —— 也就是长期养着、能进群发池的人。
+	 */
+	relationship: z.string().trim().max(32).optional(),
 });
 
 export const evidenceItem = z.object({

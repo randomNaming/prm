@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ACTIVITY_KIND_LABELS, DEAL_STAGES, FACT_FIELDS, FACT_FIELD_LABELS } from "~/types/domain";
+import { ACTIVITY_KIND_LABELS, DEAL_STAGES, FACT_FIELDS, FACT_FIELD_LABELS, RELATIONSHIP_REPAIR } from "~/types/domain";
 import type { IntakeArchive } from "~/types/domain";
 
 const api = useApi();
@@ -192,6 +192,20 @@ async function changeStage(dealId: string, stage: string) {
 								<el-descriptions-item label="微信号">{{ data.contact.wechatId ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="地址">{{ data.contact.address ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="业务角色">{{ data.contact.businessRole ?? "—" }}</el-descriptions-item>
+								<el-descriptions-item label="关系维护">
+									<el-tag
+										v-if="data.contact.relationshipState"
+										size="small"
+										effect="plain"
+										:type="data.contact.relationshipState === RELATIONSHIP_REPAIR ? 'danger' : 'info'"
+									>
+										{{ data.contact.relationshipState }}
+									</el-tag>
+									<span v-else class="crm-muted">正常（长期养着）</span>
+								</el-descriptions-item>
+								<el-descriptions-item v-if="data.contact.repairNote" label="修复说明">
+									<span class="crm-pre">{{ data.contact.repairNote }}</span>
+								</el-descriptions-item>
 								<el-descriptions-item label="领英">{{ data.contact.linkedin ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="GitHub">{{ data.contact.github ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="最近研究">
