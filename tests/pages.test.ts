@@ -103,13 +103,16 @@ afterAll(async () => {
 });
 
 describe.skipIf(!built)("页面渲染：简体中文、无金额、可导航", () => {
-	test("首页三块与快捷按钮", async () => {
+	test("首页四象限看板、近期活动与快捷按钮", async () => {
 		const page = await html("/");
 
-		expect(page).toContain("推进中的商机");
-		expect(page).toContain("已逾期任务");
+		for (const label of ["紧急且重要", "重要不紧急", "紧急不重要", "不重要不紧急"]) {
+			expect(page).toContain(label);
+		}
+
 		expect(page).toContain("近期活动");
 		expect(page).toContain("新建联系人");
+		// 推进中的商机是以卡片形式进看板的，不再是单独一块。
 		expect(page).toContain("示例科技 · 首单");
 		expect(page.includes("金额")).toBe(false);
 	});

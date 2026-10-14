@@ -56,6 +56,73 @@ export const RELATIONSHIP_REPAIR = "关系待修复";
  */
 export const RELATIONSHIP_BLANK = "__blank__";
 
+/**
+ * 四象限（艾森豪威尔矩阵）。
+ *
+ * 键用 ASCII、标签用中文：象限会被拖拽落到 `board_pins` 表里，
+ * 值一旦写进库就不该随文案改动而失效。
+ */
+export const BOARD_QUADRANTS = [
+	"urgent_important",
+	"important",
+	"urgent",
+	"neither",
+] as const;
+
+export type BoardQuadrant = (typeof BOARD_QUADRANTS)[number];
+
+export const BOARD_QUADRANT_LABELS: Record<BoardQuadrant, string> = {
+	urgent_important: "紧急且重要",
+	important: "重要不紧急",
+	urgent: "紧急不重要",
+	neither: "不重要不紧急",
+};
+
+export const BOARD_QUADRANT_HINTS: Record<BoardQuadrant, string> = {
+	urgent_important: "马上做",
+	important: "安排时间做",
+	urgent: "尽快打发掉",
+	neither: "有空再说",
+};
+
+export const BOARD_ITEM_TYPES = ["task", "deal", "contact"] as const;
+
+export type BoardItemType = (typeof BOARD_ITEM_TYPES)[number];
+
+export type BoardItem = {
+	type: BoardItemType;
+	id: string;
+	/** 卡片主标题。 */
+	title: string;
+	/** 副标题：谁、什么阶段、哪种标记。 */
+	detail: string | null;
+	/** 角标：逾期几天、停滞几天。 */
+	badge: string | null;
+	/** 点进去看哪条记录。 */
+	to: string;
+	/** 生效象限（手工拖动优先于推断）。 */
+	quadrant: BoardQuadrant;
+	/** 系统推断出来的象限，用来判断「是否被手工改过」。 */
+	inferred: BoardQuadrant;
+	/** 是否被手工拖过。 */
+	pinned: boolean;
+	/** 排序用：越大越靠前。 */
+	weight: number;
+};
+
+export type BoardColumn = {
+	quadrant: BoardQuadrant;
+	label: string;
+	hint: string;
+	items: BoardItem[];
+};
+
+export type Board = {
+	columns: BoardColumn[];
+	/** 被手工拖过的事项数，用来提示「有几个是你自己摆的」。 */
+	pinnedCount: number;
+};
+
 export const FACT_FIELDS = [
 	"title",
 	"email",

@@ -41,6 +41,17 @@ export const CONFIG = {
 		maxSearchLength: 64,
 	},
 
+	board: {
+		/** 商机在同一个阶段停留超过这么多天，自动判为「紧急」——该推一下或者干脆关掉。 */
+		stalledDealDays: 14,
+		/** 每个象限最多渲染多少条，避免首页被刷爆。 */
+		maxItemsPerQuadrant: 30,
+		/** 汇总时每类最多取多少条。 */
+		taskLimit: 100,
+		dealLimit: 100,
+		contactLimit: 100,
+	},
+
 	text: {
 		maxNameLength: 191,
 		maxFieldLength: 191,

@@ -8,6 +8,7 @@ export const TABLES = [
 	"messages",
 	"conversations",
 	"agent_tasks",
+	"board_pins",
 	"company_facts",
 	"contact_facts",
 	"activities",

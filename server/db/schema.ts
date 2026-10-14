@@ -7,6 +7,7 @@ import {
 	json,
 	mediumtext,
 	mysqlTable,
+	primaryKey,
 	text,
 	uniqueIndex,
 	varchar,
@@ -188,6 +189,24 @@ export const fieldDefs = mysqlTable(
 		uniqueIndex("field_defs_scope_key").on(table.scope, table.key),
 		index("field_defs_scope_status").on(table.scope, table.status),
 	],
+);
+
+/**
+ * 四象限看板的手工覆盖。
+ *
+ * 象限本身是自动推断的（逾期任务=紧急、停滞商机=紧急、关系维护=不重要不紧急），
+ * 这张表只存「拖动过的那些」，让手工判断盖过推断。
+ * 没有对应记录 = 未拖动，跟着推断走，所以删掉一行就等于恢复自动。
+ */
+export const boardPins = mysqlTable(
+	"board_pins",
+	{
+		itemType: varchar("item_type", { length: 16 }).notNull(),
+		itemId: varchar("item_id", { length: 36 }).notNull(),
+		quadrant: varchar("quadrant", { length: 24 }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.itemType, table.itemId] })],
 );
 
 export const agentTasks = mysqlTable(

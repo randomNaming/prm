@@ -194,8 +194,9 @@ describe.skipIf(!built)("M1 验收：三模块 CRUD、子串搜索、首页三�
 		expect(page.status).toBe(200);
 
 		const html = await page.text();
-		expect(html).toContain("推进中的商机");
-		expect(html).toContain("已逾期任务");
+		// 首页现在是四象限看板：商机与任务都在格子里，不再是各自一块。
+		expect(html).toContain("紧急且重要");
+		expect(html).toContain("不重要不紧急");
 		expect(html).toContain("近期活动");
 		expect(html.includes("金额")).toBe(false);
 		expect(html.includes("登录")).toBe(false);

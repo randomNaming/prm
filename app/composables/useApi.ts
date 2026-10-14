@@ -1,5 +1,6 @@
 import type {
 	Activity,
+	Board,
 	ChatMessage,
 	Company,
 	CompanyListItem,
@@ -30,6 +31,18 @@ export type ListQuery = {
 export function useApi() {
 	return {
 		dashboard: () => $fetch<Dashboard>("/api/dashboard"),
+
+		board: () => $fetch<Board>("/api/board"),
+		pinBoardItem: (body: {
+			type: string;
+			id: string;
+			quadrant: string;
+			inferred: string;
+		}) =>
+			$fetch<{ ok: boolean; reason: string; pinned: boolean }>("/api/board/pin", {
+				method: "POST",
+				body,
+			}),
 
 		listContacts: (query: ListQuery = {}) =>
 			$fetch<Page<ContactListItem>>("/api/contacts", { query }),
