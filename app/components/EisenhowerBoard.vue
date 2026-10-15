@@ -96,7 +96,6 @@ function driftStyle(index: number) {
 			>
 				<header class="crm-board__head">
 					<strong class="crm-board__label">{{ column.label }}</strong>
-					<span class="crm-muted crm-board__hint">{{ column.hint }}</span>
 					<el-tag size="small" effect="plain" round>{{ column.items.length }}</el-tag>
 				</header>
 
@@ -104,20 +103,22 @@ function driftStyle(index: number) {
 					空。把别的格子里的东西拖进来即可。
 				</p>
 
-				<!-- 不重要不紧急：只当标签，慢慢地飘 -->
-				<div v-else-if="column.quadrant === 'neither'" class="crm-board__chips">
+				<!-- 不重要不紧急：一片慢慢飘的词云，词条是「{姓名}{关系状态}」整句 -->
+				<div v-else-if="column.quadrant === 'neither'" class="crm-board__cloud">
 					<NuxtLink
 						v-for="(item, index) in column.items"
 						:key="`${item.type}-${item.id}`"
 						:to="item.to"
-						class="crm-chip"
-						:class="{ 'is-pinned': item.pinned, 'is-busy': busy === `${item.type}:${item.id}` }"
+						class="crm-cloud__word"
+						:class="[
+							`crm-cloud__word--${index % 4}`,
+							{ 'is-pinned': item.pinned, 'is-busy': busy === `${item.type}:${item.id}` },
+						]"
 						:style="driftStyle(index)"
 						:title="item.detail ?? item.title"
 						draggable="false"
 					>
-						{{ item.title }}
-						<span v-if="item.badge" class="crm-chip__badge">{{ item.badge }}</span>
+						{{ item.title }}{{ item.badge ?? "" }}
 					</NuxtLink>
 				</div>
 
@@ -219,11 +220,6 @@ function driftStyle(index: number) {
 	font-size: 14px;
 }
 
-.crm-board__hint {
-	font-size: 12px;
-	flex: 1;
-}
-
 .crm-board__empty {
 	font-size: 12px;
 	margin: 0;
@@ -319,47 +315,62 @@ function driftStyle(index: number) {
 	padding: 0 3px;
 }
 
-.crm-board__chips {
+.crm-board__cloud {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 6px;
+	align-items: baseline;
+	column-gap: 18px;
+	row-gap: 8px;
+	padding: 6px 2px 2px;
+	line-height: 2;
 }
 
-/* 第四象限：不紧不慢地飘。hover 暂停，否则想点的时候它一直在跑。 */
-.crm-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	padding: 3px 9px;
-	border-radius: 999px;
-	border: 1px solid var(--crm-line);
-	background: #fff;
+/* 第四象限：一片慢慢飘的词云。没有边框和底色，大小深浅错开。
+   hover 暂停，否则想点的时候它一直在跑。 */
+.crm-cloud__word {
 	color: var(--crm-muted);
-	font-size: 12px;
 	text-decoration: none;
+	white-space: nowrap;
 	animation-name: crm-drift;
 	animation-timing-function: ease-in-out;
 	animation-iteration-count: infinite;
 	will-change: transform;
 }
 
-.crm-chip:hover {
+.crm-cloud__word:hover {
 	animation-play-state: paused;
-	border-color: var(--crm-brand);
 	color: var(--crm-brand);
+	text-decoration: underline;
+	text-underline-offset: 5px;
 }
 
-.crm-chip.is-pinned {
-	border-style: dashed;
+/* 手动拖进来的：虚线下划线做记号，和词云里自动判进来区分开。 */
+.crm-cloud__word.is-pinned {
+	text-decoration: underline dashed;
+	text-underline-offset: 5px;
 }
 
-.crm-chip.is-busy {
+.crm-cloud__word.is-busy {
 	opacity: 0.5;
 }
 
-.crm-chip__badge {
-	color: #b3261e;
-	font-size: 11px;
+.crm-cloud__word--0 {
+	font-size: 17px;
+	font-weight: 600;
+	color: var(--crm-ink);
+}
+
+.crm-cloud__word--1 {
+	font-size: 13px;
+}
+
+.crm-cloud__word--2 {
+	font-size: 15px;
+	font-weight: 500;
+}
+
+.crm-cloud__word--3 {
+	font-size: 14px;
 }
 
 @keyframes crm-drift {
@@ -379,7 +390,7 @@ function driftStyle(index: number) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.crm-chip {
+	.crm-cloud__word {
 		animation: none;
 	}
 }

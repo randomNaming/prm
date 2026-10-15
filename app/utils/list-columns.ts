@@ -18,6 +18,11 @@ export type ListColumn<T> = {
 	to?: (row: T) => string;
 	/** 来自 field_defs 的字段，在选择器里单独分组。 */
 	custom?: boolean;
+	/**
+	 * 敏感列（电话、邮箱）：列表里默认脱敏显示，
+	 * 列头的眼睛开关控制整列，行值右侧的眼睛/复制图标管单格。
+	 */
+	sensitive?: boolean;
 };
 
 /**
@@ -30,6 +35,8 @@ export const CONTACT_BUILTIN_FIELD_KEYS = [
 	"phone",
 	"wechat_id",
 	"address",
+	"country",
+	"postal_code",
 	"business_role",
 	"relationship_state",
 	"repair_note",
@@ -93,6 +100,7 @@ export const CONTACT_COLUMNS: ListColumn<ContactListItem>[] = [
 		defaultVisible: false,
 		kind: "text",
 		value: (row) => row.phone ?? "",
+		sensitive: true,
 	},
 	{
 		key: "wechatId",
@@ -109,6 +117,7 @@ export const CONTACT_COLUMNS: ListColumn<ContactListItem>[] = [
 		defaultVisible: false,
 		kind: "text",
 		value: (row) => row.email ?? "",
+		sensitive: true,
 	},
 	{
 		key: "title",
@@ -125,6 +134,22 @@ export const CONTACT_COLUMNS: ListColumn<ContactListItem>[] = [
 		defaultVisible: false,
 		kind: "text",
 		value: (row) => row.address ?? "",
+	},
+	{
+		key: "country",
+		label: "国家",
+		minWidth: 100,
+		defaultVisible: false,
+		kind: "text",
+		value: (row) => row.country ?? "",
+	},
+	{
+		key: "postalCode",
+		label: "邮编",
+		minWidth: 90,
+		defaultVisible: false,
+		kind: "text",
+		value: (row) => row.postalCode ?? "",
 	},
 	{
 		key: "linkedin",

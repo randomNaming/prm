@@ -20,6 +20,8 @@ export const contactInput = z.object({
 	phone: blankToNull(64),
 	wechatId: blankToNull(CONFIG.text.maxFieldLength),
 	address: blankToNull(CONFIG.text.maxFieldLength),
+	country: blankToNull(64),
+	postalCode: blankToNull(32),
 	businessRole: blankToNull(32),
 	relationshipState: blankToNull(32),
 	repairNote: blankToNull(CONFIG.text.maxFieldLength),

@@ -71,6 +71,13 @@ export function decideFact(input: {
 		return { kind: "refused", reason: `${label}：记录里已经是这个值。` };
 	}
 
+	// 字段现值已经同文（人工填的列值也算）：不再生成建议。
+	// 过去的洞在这里——列里人工填了「买家」，事实表里没有对应行，
+	// 智能体再提一次「买家」就变成待确认建议，接受后详情页渲染出两行一样的。
+	if (currentValue && sameValue(currentValue, value)) {
+		return { kind: "refused", reason: `${label}：记录里已经是这个值，不再重复建议。` };
+	}
+
 	const proposed = existing.find(
 		(fact) => fact.status === "proposed" && sameValue(fact.value, value),
 	);

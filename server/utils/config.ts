@@ -36,7 +36,7 @@ export const CONFIG = {
 	lists: {
 		pageSize: 20,
 		maxPageSize: 100,
-		recentActivityLimit: 20,
+		recentActivityLimit: 10,
 		timelineLimit: 50,
 		maxSearchLength: 64,
 	},

@@ -14,7 +14,7 @@
     "typecheck": "nuxt typecheck",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
-    "test": "bun test tests --path-ignore-patterns=\"mcp-wechat/**\""
+    "test": "bun test tests"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.67",

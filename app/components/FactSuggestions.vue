@@ -20,7 +20,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-	decide: [payload: { id: string; action: "accept" | "reject" }];
+	decide: [payload: { id: string; action: "accept" | "reject" | "revert" }];
 }>();
 
 const proposed = computed(() => props.facts.filter((fact) => fact.status === "proposed"));
@@ -66,9 +66,21 @@ function statusLabel(status: string): string {
 				<div v-for="fact in decided" :key="fact.id" class="crm-timeline-item">
 					<div class="crm-spread">
 						<span>{{ labelOf(fact.field) }} → {{ fact.value }}</span>
-						<el-tag size="small" type="info" effect="plain">
-							{{ statusLabel(fact.status) }}
-						</el-tag>
+						<div class="crm-row">
+							<el-tag size="small" type="info" effect="plain">
+								{{ statusLabel(fact.status) }}
+							</el-tag>
+							<!-- 接受点错了要能反悔：已写入的值可以撤销（有列的字段列值不动，改值用「编辑」）。 -->
+							<el-popconfirm
+								v-if="fact.status === 'applied'"
+								title="撤销这条已写入的值？"
+								@confirm="emit('decide', { id: fact.id, action: 'revert' })"
+							>
+								<template #reference>
+									<el-button size="small" link type="danger" :disabled="busy">撤销</el-button>
+								</template>
+							</el-popconfirm>
+						</div>
 					</div>
 					<div v-for="(item, index) in fact.evidence" :key="index" class="crm-quote">
 						{{ item.kind }}<span v-if="item.ref">（{{ item.ref }}）</span>：{{ item.quote }}

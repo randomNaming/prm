@@ -8,7 +8,7 @@ import {
 import { companies, companyFacts } from "../db/schema";
 import { db } from "./db";
 import { decideFact, sameValue } from "./fact-rules";
-import { findFieldDef, findFieldDefAnyScope } from "./fields";
+import { findFieldDef, findFieldDefAnyScope, closeFieldDefs } from "./fields";
 import { newId, nowMs } from "./ids";
 import { companyFactField, factStatus, parseEvidence } from "./parse";import type { RecordCompanyFactInput } from "./validate";
 
@@ -64,6 +64,18 @@ export async function recordCompanyFact(
 			return refused(
 				`「${input.field}」是${other.scope === "company" ? "公司" : "联系人"}字段（${other.key}），请用 ${other.scope === "company" ? "record_company_fact" : "record_fact"} 写到对应记录上。`,
 			);
+		}
+
+		// 叫法对不上但库里其实有相近字段时，把正确的名字告诉智能体，让它当场改写重试。
+		if (!other) {
+			const close = await closeFieldDefs("company", input.field);
+
+			if (close.length > 0) {
+				const names = close.map((item) => `「${item.label}」`).join("、");
+				return refused(
+					`字段「${input.field}」不在公司字段表里，但库里已有相近字段 ${names}。请改用其中正确的字段名重新调用；确实都不对，再用 propose_field 提新字段。`,
+				);
+			}
 		}
 
 		return refused(
@@ -248,4 +260,45 @@ export async function dismissCompanyFact(
 		.where(eq(companyFacts.id, factId));
 
 	return { ok: true, reason: "已拒绝，同一个值不会再出现。" };
+}
+
+/** 撤销语义与联系人的 revertFact 相同：只退场事实，不猜旧值；有列的字段列值不动。 */
+export async function revertCompanyFact(
+	factId: string,
+): Promise<{ ok: boolean; reason: string }> {
+	return db().transaction(async (tx) => {
+		const [fact] = await tx
+			.select()
+			.from(companyFacts)
+			.where(eq(companyFacts.id, factId))
+			.limit(1);
+
+		if (!fact) return { ok: false, reason: "建议不存在。" };
+		if (fact.status !== "applied") return { ok: false, reason: "只有已写入的值才能撤销。" };
+
+		const [company] = await tx
+			.select({ id: companies.id })
+			.from(companies)
+			.where(eq(companies.id, fact.companyId))
+			.limit(1)
+			.for("update");
+
+		if (!company) return { ok: false, reason: "公司不存在。" };
+
+		const at = nowMs();
+
+		await tx
+			.update(companyFacts)
+			.set({ status: "superseded", decidedAt: at })
+			.where(eq(companyFacts.id, factId));
+
+		await tx.update(companies).set({ updatedAt: at }).where(eq(companies.id, fact.companyId));
+
+		return {
+			ok: true,
+			reason: hasColumn(fact.field)
+				? "已撤销该条记录；字段现值未动，要改值请用「编辑」。"
+				: "已撤销，值已从档案移除。",
+		};
+	});
 }

@@ -7,8 +7,8 @@ import { env } from "./env";
 /**
  * 平台内的 MCP Server 接入提示。
  *
- * 只做「读盘 + 拼装」，不启动任何子进程：把两个 MCP 包的现状和可直接粘贴的客户端配置
- * 算出来交给界面。路径以进程工作目录为基准，与 env.ts 读 .env 的口径一致。
+ * 只做「读盘 + 拼装」，不启动任何子进程：把写侧 MCP 包（mcp-crm）的现状和
+ * 可直接粘贴的客户端配置算出来交给界面。路径以进程工作目录为基准，与 env.ts 读 .env 的口径一致。
  */
 
 const ROOT = process.cwd();
@@ -86,75 +86,6 @@ export function platformBaseUrl(): string {
 			: current.host;
 
 	return `http://${reachable}:${current.port}`;
-}
-
-function wechatServer(): McpServerInfo {
-	const packageDir = resolve(ROOT, "mcp-wechat");
-	const entry = resolve(packageDir, "dist", "index.js");
-	const envFile = resolve(packageDir, ".env");
-	const fileEnv = readEnvFile(envFile);
-
-	const exportDir = envItem(fileEnv, {
-		key: "WECHAT_EXPORT_DIR",
-		required: true,
-		description: "微信聊天记录导出 .txt 所在目录。本服务只读，不写、不改名、不删除。",
-	});
-	const httpPort = envItem(fileEnv, {
-		key: "MCP_HTTP_PORT",
-		required: false,
-		description: "留空 = 只用 stdio（推荐）。填端口后改为 Streamable HTTP，只绑定 127.0.0.1。",
-	});
-
-	const entryExists = existsSync(entry);
-	const blockers: string[] = [];
-
-	if (!existsSync(packageDir)) blockers.push("没有找到 mcp-wechat 目录，确认它与平台在同一层目录下。");
-	if (!entryExists) blockers.push("尚未编译：先在该目录执行 bun install 与 bun run build，产出 dist/index.js。");
-	if (exportDir.source === "missing") blockers.push("未配置 WECHAT_EXPORT_DIR，服务启动会直接以非零码退出。");
-
-	const port = httpPort.source === "missing" ? "3939" : httpPort.value;
-
-	return {
-		id: "wechat",
-		name: "mcp-wechat",
-		direction: "读",
-		summary:
-			"客户端来读微信导出文件：平台或任意 agent 调 list_chats / search_messages / get_recent 取聊天数据。不依赖 CRM 平台，可单独交付。",
-		packageDir,
-		entry,
-		entryExists,
-		envFile,
-		envFileExists: existsSync(envFile),
-		env: [exportDir, httpPort],
-		tools: [
-			{ name: "list_chats", summary: "列出导出目录里的全部会话，拿 person 作为另外两个工具的入参。" },
-			{ name: "search_messages", summary: "在指定会话里按子串搜消息。" },
-			{ name: "get_recent", summary: "取指定会话最近若干条消息。" },
-		],
-		snippets: [
-			{
-				label: "stdio 模式（推荐）",
-				where: STDIO_WHERE,
-				json: stdioSnippet({
-					id: "wechat",
-					entry,
-					env: { WECHAT_EXPORT_DIR: exportDir.value || "C:\\\\path\\\\to\\\\微信导出" },
-				}),
-			},
-			{
-				label: `Streamable HTTP 模式（先用 MCP_HTTP_PORT=${port} node dist/index.js 起服务）`,
-				where: "客户端只支持远程连接时用这一段；服务只监听 127.0.0.1。",
-				json: httpSnippet("wechat", port),
-			},
-		],
-		buildCommands: [
-			`cd "${packageDir}"`,
-			"bun install",
-			"bun run build",
-		],
-		blockers,
-		ready: blockers.length === 0,
-	};
 }
 
 function crmServer(): McpServerInfo {
@@ -239,10 +170,10 @@ export function mcpOverview(): McpOverview {
 	return {
 		platformBaseUrl: platformBaseUrl(),
 		root: ROOT,
-		servers: [wechatServer(), crmServer()],
+		servers: [crmServer()],
 		notes: [
-			"两个 MCP Server 方向相反：mcp-wechat 是读（客户端来取微信数据），mcp-crm 是写（客户端把聊天记录交给平台）。",
-			"都以 stdio 为默认传输，无需开放端口；只有远程客户端接入时才用 Streamable HTTP。",
+			"mcp-crm 是写侧：客户端把聊天记录交给平台，由智能体抽取联系人、公司与字段并建档。",
+			"默认 stdio 传输，无需开放端口；只有远程客户端接入时才用 Streamable HTTP。",
 			"平台侧写入同时提供 HTTP 入口 POST /api/intake，供不方便装 MCP 客户端的场景直连。",
 			"HTTP 模式只绑定 127.0.0.1。要对公网暴露必须先前置反向代理并加认证。",
 		],

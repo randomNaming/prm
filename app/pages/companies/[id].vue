@@ -18,7 +18,8 @@ const { data: fieldDefs, refresh: refreshFields } = await useAsyncData(`company-
 	api.fields("company"),
 );
 
-const BUILTIN_KEYS = new Set<string>(COMPANY_FACT_FIELDS);
+// cooperation_role 有独立数据库列，「公司资料」里已单独渲染，不再挤进自定义字段区重复一遍。
+const BUILTIN_KEYS = new Set<string>([...COMPANY_FACT_FIELDS, "cooperation_role"]);
 
 const fieldLabels = computed(() => {
 	const labels: Record<string, string> = { ...COMPANY_FACT_FIELD_LABELS };
@@ -37,7 +38,11 @@ const customFacts = computed(() =>
 );
 
 const proposedFieldCount = computed(
-	() => (fieldDefs.value?.fields ?? []).filter((field) => field.status === "proposed").length,
+	() =>
+		(fieldDefs.value?.fields ?? []).filter(
+			(field) =>
+				field.status === "proposed" && (!field.sampleRef || field.sampleRef === id.value),
+		).length,
 );
 
 const showEdit = ref(false);
@@ -72,7 +77,7 @@ async function editCompany(payload: Record<string, unknown>) {
 	}
 }
 
-async function decideFact(payload: { id: string; action: "accept" | "reject" }) {
+async function decideFact(payload: { id: string; action: "accept" | "reject" | "revert" }) {
 	factBusy.value = true;
 
 	try {
@@ -170,17 +175,6 @@ async function archive() {
 								</el-descriptions-item>
 							</el-descriptions>
 						</section>
-
-						<section class="crm-card">
-							<h2 class="crm-section__title">公司联系人（{{ data.contacts.length }}）</h2>
-							<el-empty v-if="data.contacts.length === 0" description="还没有联系人" :image-size="60" />
-							<div v-for="person in data.contacts" :key="person.id" class="crm-timeline-item">
-								<NuxtLink :to="`/contacts/${person.id}`" class="crm-link">
-									{{ personName(person) }}
-								</NuxtLink>
-								<div class="crm-muted">{{ person.title ?? "职位未知" }}</div>
-							</div>
-						</section>
 					</div>
 				</el-tab-pane>
 
@@ -201,6 +195,7 @@ async function archive() {
 					</template>
 					<FieldProposals
 						:fields="fieldDefs?.fields ?? []"
+						:record-id="id"
 						:busy="factBusy"
 						@decide="decideField"
 					/>

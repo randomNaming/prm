@@ -100,10 +100,20 @@ export function useApi() {
 
 		search: (q: string) => $fetch<{ query: string; hits: SearchHit[] }>("/api/search", { query: { q } }),
 
-		decideFact: (id: string, action: "accept" | "reject", subject: "contact" | "company" = "contact") =>
+		decideFact: (
+			id: string,
+			action: "accept" | "reject" | "revert",
+			subject: "contact" | "company" = "contact",
+		) =>
 			$fetch<{ ok: boolean; reason: string }>("/api/fact-decision", {
 				method: "POST",
 				body: { id, action, subject },
+			}),
+
+		markArchivesViewed: (contactId: string) =>
+			$fetch<{ ok: boolean; marked: number }>("/api/intake-viewed", {
+				method: "POST",
+				body: { contactId },
 			}),
 
 		conversations: (query: { contactId?: string; companyId?: string; dealId?: string } = {}) =>

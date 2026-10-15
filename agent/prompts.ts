@@ -3,7 +3,7 @@ import { ACTIVITY_KIND_LABELS, DEAL_STATUS_LABELS } from "../app/types/domain";
 import { contactActivities, contactCompany, contactDeals, contactFactsFor, getContact } from "../server/utils/contacts";
 import { companyContacts, companyDeals, getCompany } from "../server/utils/companies";
 import { companyFactsFor } from "../server/utils/company-facts";
-import { fieldLabelMap } from "../server/utils/fields";
+import { listFieldDefs } from "../server/utils/fields";
 import { listActivities } from "../server/utils/activities";
 import { getDeal } from "../server/utils/deals";
 
@@ -66,6 +66,8 @@ export const WECHAT_SYSTEM = [
 		"",
 		"【字段映射】聊天里出现这些线索时这样写：",
 		"· 【姓名】【电话】【邮箱】【微信号】【地址】【职位】等标签 → 用 record_fact 写到该联系人对应字段；",
+		"· 对方提到的国别、收件地址里的国家、清关/物流信息里的国家 → record_fact 写「国家」，值用中文国名（如「美国」）；",
+		"· 地址里的邮编 → record_fact 写「邮编」，只写邮编本身；",
 		"· 公司全名 → ensure_company 拿到 id，再用 record_company_fact 补「主营介绍」「公司地址」「行业」「官网域名」；",
 		"· 公司主营业务 / 主营产品 → record_company_fact 的「主营介绍」；",
 		"· 「源头厂家」「供货方」「代工厂」「我们供你们」这类描述 → classify_role（scope=company）判定合作角色；",
@@ -101,7 +103,7 @@ export const RESEARCH_SYSTEM = [
 	[
 		"这一轮是后台研究，没有人正在等你回话。做完事就停，不要写计划，不要写总结陈词。",
 		"研究对象是给定的记录。先 read_contact 或 read_company 读全貌，必要时再 read_deal / search_crm。",
-		"给联系人补字段用 record_fact；给公司补字段用 record_company_fact。可补的联系人字段：职位、邮箱、电话、手机、家庭电话、工作电话、微信号、地址、领英、GitHub；可补的公司字段：行业、主营介绍、公司地址、官网域名。",
+		"给联系人补字段用 record_fact；给公司补字段用 record_company_fact。可补的联系人字段：职位、邮箱、电话、手机、家庭电话、工作电话、微信号、地址、国家（值用中文国名，如「美国」）、邮编、领英、GitHub；可补的公司字段：行业、主营介绍、公司地址、官网域名。除这些内置字段外，档案里「可用字段」一行列出的自定义字段（例如「籍贯」）同样可写，field 就用列出的名字，不要另起叫法。",
 		"电话按类型分开：带 Cell/Mobile/手机 标注的写「手机」，带 Home/家庭 标注的写「家庭电话」，带 Office/Work/办公/座机 标注的写「工作电话」，没有类型标注的才写「电话」。value 只写号码本身，不要加标签，也不要把两个号码拼成一条。",
 		"角色单独处理：读到的资料里如果写了这家公司在生意里的位置（例如源头厂家、供货方、采购方），调用 classify_role（scope=company）判定合作角色；写了这个人在生意里的位置（例如负责对接、说了算、管技术、管采购），调用 classify_role（scope=contact）判定业务角色。资料没有这类内容就跳过，不要硬判。",
 		"资料里出现字段表里没有的信息（例如「所在城市」「合作起始日」「介绍人」），用 propose_field 提一个新字段建议，并在 sample_value 里给出资料中的那个值。系统会做同义词去重：撞到已有字段就照它返回的字段写，绝不重复建字段。新字段要人确认后才生效，确认后你可以再写值。",
@@ -120,11 +122,16 @@ export function contactPreamble(input: {
 	deals: Deal[];
 	activities: { kind: keyof typeof ACTIVITY_KIND_LABELS; title: string; body: string | null }[];
 	facts: { label: string; value: string; status: string }[];
+	/** 字段表里已生效的字段，record_fact 只认这些名字。 */
+	fields: { label: string; agentWritable: boolean }[];
 }): string {
 	const name = `${input.contact.firstName}${input.contact.lastName ?? ""}`;
+	const agentFields = input.fields.filter((field) => field.agentWritable);
+	const humanFields = input.fields.filter((field) => !field.agentWritable);
 	const lines = [
 		`当前联系人：${name}（id: ${input.contact.id}）`,
-		`已录入字段：职位=${input.contact.title ?? "空"}，邮箱=${input.contact.email ?? "空"}，电话=${input.contact.phone ?? "空"}，微信号=${input.contact.wechatId ?? "空"}，领英=${input.contact.linkedin ?? "空"}，GitHub=${input.contact.github ?? "空"}`,
+		`可用字段（record_fact 的 field 只用这些名字）：${agentFields.map((field) => field.label).join("、") || "无"}${humanFields.length ? `；仅人工填写：${humanFields.map((field) => field.label).join("、")}` : ""}`,
+		`已录入字段：职位=${input.contact.title ?? "空"}，邮箱=${input.contact.email ?? "空"}，电话=${input.contact.phone ?? "空"}，微信号=${input.contact.wechatId ?? "空"}，地址=${input.contact.address ?? "空"}，国家=${input.contact.country ?? "空"}，邮编=${input.contact.postalCode ?? "空"}，领英=${input.contact.linkedin ?? "空"}，GitHub=${input.contact.github ?? "空"}`,
 		`备注原文：${input.contact.notes?.trim() ? input.contact.notes : "无"}`,
 		input.company
 			? `所属公司：${input.company.name}（id: ${input.company.id}）`
@@ -154,9 +161,15 @@ export function companyPreamble(input: {
 	deals: Deal[];
 	facts: { label: string; value: string; status: string }[];
 	activities: { kind: keyof typeof ACTIVITY_KIND_LABELS; title: string; body: string | null }[];
+	/** 字段表里已生效的字段，record_company_fact 只认这些名字。 */
+	fields: { label: string; agentWritable: boolean }[];
 }): string {
+	const agentFields = input.fields.filter((field) => field.agentWritable);
+	const humanFields = input.fields.filter((field) => !field.agentWritable);
+
 	return [
 		`当前公司：${input.company.name}（id: ${input.company.id}）`,
+		`可用字段（record_company_fact 的 field 只用这些名字）：${agentFields.map((field) => field.label).join("、") || "无"}${humanFields.length ? `；仅人工填写：${humanFields.map((field) => field.label).join("、")}` : ""}`,
 		`已录入字段：行业=${input.company.industry ?? "空"}，公司地址=${input.company.address ?? "空"}，官网域名=${input.company.domain ?? "空"}`,
 		`主营介绍原文：${input.company.description?.trim() ? input.company.description : "无"}`,
 		input.facts.length
@@ -206,13 +219,15 @@ export async function contactContext(contactId: string) {
 	const contact = await getContact(contactId);
 	if (!contact) return null;
 
-	const [company, deals, activities, facts, labels] = await Promise.all([
+	const [company, deals, activities, facts, defs] = await Promise.all([
 		contactCompany(contact.companyId),
 		contactDeals(contactId),
 		contactActivities(contactId, 10),
 		contactFactsFor(contactId),
-		fieldLabelMap("contact"),
+		listFieldDefs({ scope: "contact", status: "active" }),
 	]);
+	const labels: Record<string, string> = {};
+	for (const def of defs) labels[def.key] = def.label;
 
 	return {
 		contact,
@@ -224,6 +239,7 @@ export async function contactContext(contactId: string) {
 			value: fact.value,
 			status: fact.status,
 		})),
+		fields: defs.map((def) => ({ label: def.label, agentWritable: def.agentWritable })),
 	};
 }
 
@@ -231,13 +247,15 @@ export async function companyContext(companyId: string) {
 	const company = await getCompany(companyId);
 	if (!company) return null;
 
-	const [contacts, deals, facts, activities, labels] = await Promise.all([
+	const [contacts, deals, facts, activities, defs] = await Promise.all([
 		companyContacts(companyId),
 		companyDeals(companyId),
 		companyFactsFor(companyId),
 		listActivities({ companyId, page: 1, limit: 10 }),
-		fieldLabelMap("company"),
+		listFieldDefs({ scope: "company", status: "active" }),
 	]);
+	const labels: Record<string, string> = {};
+	for (const def of defs) labels[def.key] = def.label;
 
 	return {
 		company,
@@ -249,6 +267,7 @@ export async function companyContext(companyId: string) {
 			value: fact.value,
 			status: fact.status,
 		})),
+		fields: defs.map((def) => ({ label: def.label, agentWritable: def.agentWritable })),
 	};
 }
 

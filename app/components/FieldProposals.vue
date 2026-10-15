@@ -4,13 +4,25 @@ import { FIELD_SCOPE_LABELS, type FieldDef } from "~/types/domain";
 const props = defineProps<{
 	fields: FieldDef[];
 	busy?: boolean;
+	/**
+	 * 新字段建议归属到它被提出时所在的记录（agent 调 propose_field 时的 subject），
+	 * 只在那条记录的详情页展示，不再满屏都是。
+	 * 没记来源的旧数据兜底显示，避免丢失无处审。
+	 */
+	recordId?: string;
 }>();
 
 const emit = defineEmits<{
 	decide: [payload: { id: string; action: "accept" | "reject" }];
 }>();
 
-const proposed = computed(() => props.fields.filter((field) => field.status === "proposed"));
+const proposed = computed(() =>
+	props.fields.filter(
+		(field) =>
+			field.status === "proposed" &&
+			(!props.recordId || !field.sampleRef || field.sampleRef === props.recordId),
+	),
+);
 </script>
 
 <template>

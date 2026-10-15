@@ -78,13 +78,6 @@ export const BOARD_QUADRANT_LABELS: Record<BoardQuadrant, string> = {
 	neither: "不重要不紧急",
 };
 
-export const BOARD_QUADRANT_HINTS: Record<BoardQuadrant, string> = {
-	urgent_important: "马上做",
-	important: "安排时间做",
-	urgent: "尽快打发掉",
-	neither: "有空再说",
-};
-
 export const BOARD_ITEM_TYPES = ["task", "deal", "contact"] as const;
 
 export type BoardItemType = (typeof BOARD_ITEM_TYPES)[number];
@@ -113,7 +106,6 @@ export type BoardItem = {
 export type BoardColumn = {
 	quadrant: BoardQuadrant;
 	label: string;
-	hint: string;
 	items: BoardItem[];
 };
 
@@ -129,6 +121,8 @@ export const FACT_FIELDS = [
 	"phone",
 	"wechat_id",
 	"address",
+	"country",
+	"postal_code",
 	"linkedin",
 	"github",
 ] as const;
@@ -141,6 +135,8 @@ export const FACT_FIELD_LABELS: Record<FactField, string> = {
 	phone: "电话",
 	wechat_id: "微信号",
 	address: "地址",
+	country: "国家",
+	postal_code: "邮编",
 	linkedin: "领英主页",
 	github: "GitHub 主页",
 };
@@ -225,6 +221,10 @@ export type Contact = {
 	phone: string | null;
 	wechatId: string | null;
 	address: string | null;
+	/** 国家：标准中文国名，下拉数据源在 app/utils/countries.ts。 */
+	country: string | null;
+	/** 邮编。 */
+	postalCode: string | null;
 	businessRole: string | null;
 	/** 关系维护。留空 = 正常关系，进「长期养着」的池子（节日问候、群发营销）。 */
 	relationshipState: string | null;
@@ -404,6 +404,8 @@ export type IntakeArchive = {
 	/** 会话标题，形如「微信记录导入：David McGowan（126 条，2026-08-18 ~ 2026-10-13）」。 */
 	title: string;
 	importedAt: number;
+	/** null = 还没看过（详情页「聊天留底」标签上的红点）。 */
+	viewedAt: number | null;
 	/** 智能体这一轮的中文摘要。 */
 	summary: string | null;
 };

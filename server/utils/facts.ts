@@ -8,7 +8,8 @@ import {
 import { contactFacts, contacts } from "../db/schema";
 import { db } from "./db";
 import { decideFact, sameValue } from "./fact-rules";
-import { findFieldDef, findFieldDefAnyScope } from "./fields";
+import { findFieldDef, findFieldDefAnyScope, closeFieldDefs } from "./fields";
+import { normalizeCountry } from "../../app/utils/countries";
 import { newId, nowMs } from "./ids";
 import { toFact } from "./contacts";
 import type { RecordFactInput } from "./validate";
@@ -19,6 +20,8 @@ type FactColumn =
 	| "phone"
 	| "wechatId"
 	| "address"
+	| "country"
+	| "postalCode"
 	| "businessRole"
 	| "linkedin"
 	| "github";
@@ -29,6 +32,8 @@ const FIELD_COLUMNS: Record<string, FactColumn> = {
 	phone: "phone",
 	wechat_id: "wechatId",
 	address: "address",
+	country: "country",
+	postal_code: "postalCode",
 	business_role: "businessRole",
 	linkedin: "linkedin",
 	github: "github",
@@ -47,8 +52,11 @@ export type RecordFactResult = {
 };
 
 export async function recordFact(input: RecordFactInput): Promise<RecordFactResult> {
-	const value = input.value.trim();
+	let value = input.value.trim();
 	const def = await findFieldDef({ scope: "contact", term: input.field });
+	// 国家存标准中文国名：agent 抄原文时可能写成 US / United States，能认出来的都归一，
+	// 认不出的原样保留——宁可有生僻写法，也不错删信息。
+	if (def?.key === "country") value = normalizeCountry(value) ?? value;
 	const refused = (reason: string): RecordFactResult => ({
 		stored: false,
 		applied: false,
@@ -64,6 +72,19 @@ export async function recordFact(input: RecordFactInput): Promise<RecordFactResu
 			return refused(
 				`「${input.field}」是${other.scope === "company" ? "公司" : "联系人"}字段（${other.key}），请用 ${other.scope === "company" ? "record_company_fact" : "record_fact"} 写到对应记录上。`,
 			);
+		}
+
+		// 叫法对不上但库里其实有相近字段时，把正确的名字告诉智能体，让它当场改写重试，
+		// 而不是任由它去 propose_field 又建一个同义字段。
+		if (!other) {
+			const close = await closeFieldDefs("contact", input.field);
+
+			if (close.length > 0) {
+				const names = close.map((item) => `「${item.label}」`).join("、");
+				return refused(
+					`字段「${input.field}」不在联系人字段表里，但库里已有相近字段 ${names}。请改用其中正确的字段名重新调用；确实都不对，再用 propose_field 提新字段。`,
+				);
+			}
 		}
 
 		return refused(
@@ -248,4 +269,51 @@ export async function dismissFact(factId: string): Promise<{ ok: boolean; reason
 		.where(eq(contactFacts.id, factId));
 
 	return { ok: true, reason: "已拒绝，同一个值不会再出现。" };
+}
+
+/**
+ * 撤销一条已写入的字段值：把它退回「已被替换」。
+ *
+ * 刻意不去猜「接受之前的旧值」是什么：接受那一刻没有记录列里原来的内容，
+ * 同批被顶掉的行里也分不清哪条是旧值、哪条只是同时关闭的建议，恢复错了比不恢复更糟。
+ * 所以只做两件确定安全的事：
+ *   - 有独立列的字段（如业务角色）：列里的现值不动，值要改就用「编辑」；
+ *   - 只存在事实表里的字段（如手机）：事实退场后值自然从档案消失。
+ */
+export async function revertFact(factId: string): Promise<{ ok: boolean; reason: string }> {
+	return db().transaction(async (tx) => {
+		const [fact] = await tx
+			.select()
+			.from(contactFacts)
+			.where(eq(contactFacts.id, factId))
+			.limit(1);
+
+		if (!fact) return { ok: false, reason: "建议不存在。" };
+		if (fact.status !== "applied") return { ok: false, reason: "只有已写入的值才能撤销。" };
+
+		const [contact] = await tx
+			.select({ id: contacts.id })
+			.from(contacts)
+			.where(eq(contacts.id, fact.contactId))
+			.limit(1)
+			.for("update");
+
+		if (!contact) return { ok: false, reason: "联系不存在。" };
+
+		const at = nowMs();
+
+		await tx
+			.update(contactFacts)
+			.set({ status: "superseded", decidedAt: at })
+			.where(eq(contactFacts.id, factId));
+
+		await tx.update(contacts).set({ updatedAt: at }).where(eq(contacts.id, fact.contactId));
+
+		return {
+			ok: true,
+			reason: hasColumn(fact.field)
+				? "已撤销该条记录；字段现值未动，要改值请用「编辑」。"
+				: "已撤销，值已从档案移除。",
+		};
+	});
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ACTIVITY_KIND_LABELS, DEAL_STAGES, FACT_FIELDS, FACT_FIELD_LABELS, RELATIONSHIP_REPAIR } from "~/types/domain";
 import type { IntakeArchive } from "~/types/domain";
+import { copyText } from "~/utils/clipboard";
 
 const api = useApi();
 const route = useRoute();
@@ -15,7 +16,13 @@ const { data: fieldDefs, refresh: refreshFields } = await useAsyncData(`contact-
 	api.fields("contact"),
 );
 
-const BUILTIN_KEYS = new Set<string>(FACT_FIELDS);
+const BUILTIN_KEYS = new Set<string>([
+	...FACT_FIELDS,
+	// 这三个有独立数据库列，「基本信息」里已经单独渲染，不再挤进自定义字段区重复一遍。
+	"business_role",
+	"relationship_state",
+	"repair_note",
+]);
 
 const fieldLabels = computed(() => {
 	const labels: Record<string, string> = { ...FACT_FIELD_LABELS };
@@ -45,6 +52,40 @@ const archiveBusy = ref("");
 const openedArchive = ref("");
 const archiveText = ref("");
 const archiveError = ref("");
+
+/** 红点只数没看过的留底；打开「聊天留底」标签即视为全部看过。 */
+const unreadArchives = computed(
+	() => (data.value?.archives ?? []).filter((item) => item.viewedAt === null).length,
+);
+
+/** 完整寄收件地址 = 地址 + 国家，一键复制。内网 http 下没有剪贴板 API，copyText 有兜底。 */
+const addressCopied = ref(false);
+let addressCopyTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function copyAddress() {
+	const full = [data.value?.contact.address, data.value?.contact.postalCode, data.value?.contact.country]
+		.filter(Boolean)
+		.join(", ");
+
+	if (!full || !(await copyText(full))) return;
+
+	addressCopied.value = true;
+	if (addressCopyTimer) clearTimeout(addressCopyTimer);
+	addressCopyTimer = setTimeout(() => {
+		addressCopied.value = false;
+	}, 2000);
+}
+
+watch(activeTab, async (tab) => {
+	if (tab !== "archive" || unreadArchives.value === 0) return;
+
+	try {
+		await api.markArchivesViewed(id.value);
+		await refresh();
+	} catch {
+		// 标已读失败就先留着红点，下次打开再试；这只是个提示标记，不值得弹错。
+	}
+});
 
 /**
  * 聊天留底只读：原文存在会话的 user 消息里，按需取回，
@@ -104,7 +145,7 @@ async function research() {
 	}
 }
 
-async function decideFact(payload: { id: string; action: "accept" | "reject" }) {
+async function decideFact(payload: { id: string; action: "accept" | "reject" | "revert" }) {
 	factBusy.value = true;
 
 	try {
@@ -190,7 +231,21 @@ async function changeStage(dealId: string, stage: string) {
 								<el-descriptions-item label="邮箱">{{ data.contact.email ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="电话">{{ data.contact.phone ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="微信号">{{ data.contact.wechatId ?? "—" }}</el-descriptions-item>
-								<el-descriptions-item label="地址">{{ data.contact.address ?? "—" }}</el-descriptions-item>
+								<el-descriptions-item label="地址">
+									<span>{{ data.contact.address ?? "—" }}</span>
+									<el-button
+										v-if="data.contact.address"
+										link
+										type="primary"
+										size="small"
+										class="crm-copy"
+										@click="copyAddress"
+									>
+										{{ addressCopied ? "已复制" : "复制" }}
+									</el-button>
+								</el-descriptions-item>
+								<el-descriptions-item label="国家">{{ data.contact.country ?? "—" }}</el-descriptions-item>
+								<el-descriptions-item label="邮编">{{ data.contact.postalCode ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="业务角色">{{ data.contact.businessRole ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="关系维护">
 									<el-tag
@@ -260,17 +315,26 @@ async function changeStage(dealId: string, stage: string) {
 						<el-badge
 							v-if="
 								data.facts.filter((fact) => fact.status === 'proposed').length +
-									(fieldDefs?.fields ?? []).filter((field) => field.status === 'proposed').length >
+									(fieldDefs?.fields ?? []).filter(
+										(field) =>
+											field.status === 'proposed' &&
+											(!field.sampleRef || field.sampleRef === id),
+									).length >
 								0
 							"
 							:value="
 								data.facts.filter((fact) => fact.status === 'proposed').length +
-								(fieldDefs?.fields ?? []).filter((field) => field.status === 'proposed').length
+								(fieldDefs?.fields ?? []).filter(
+									(field) =>
+										field.status === 'proposed' &&
+										(!field.sampleRef || field.sampleRef === id),
+								).length
 							"
 						/>
 					</template>
 					<FieldProposals
 						:fields="fieldDefs?.fields ?? []"
+						:record-id="id"
 						:busy="factBusy"
 						@decide="decideField"
 					/>
@@ -309,7 +373,7 @@ async function changeStage(dealId: string, stage: string) {
 				<el-tab-pane name="archive">
 					<template #label>
 						聊天留底
-						<el-badge v-if="data.archives.length > 0" :value="data.archives.length" />
+						<el-badge v-if="unreadArchives > 0" :value="unreadArchives" />
 					</template>
 
 					<p class="crm-muted crm-archive__hint">
@@ -373,6 +437,10 @@ async function changeStage(dealId: string, stage: string) {
 
 .crm-pre {
 	white-space: pre-wrap;
+}
+
+.crm-copy {
+	margin-left: 8px;
 }
 
 .crm-note-body {

@@ -177,6 +177,8 @@ describe("联系人地址字段", () => {
 			phone: null,
 			wechatId: null,
 			address: null,
+			country: null,
+			postalCode: null,
 			businessRole: null,
 			relationshipState: null,
 			repairNote: null,

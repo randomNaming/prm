@@ -146,6 +146,26 @@ export async function findFieldDefAnyScope(term: string): Promise<FieldDef | nul
 	return defs.find((def) => matches(def, normalized)) ?? null;
 }
 
+/**
+ * 按归一化包含关系（任一方向）找近似字段，只用于「字段不存在」时给智能体一个可改写的名字，
+ * 例如叫「国家」时提示它库里其实有「所在国家」。
+ * 只看生效且智能体可写的：人工专填的字段不值得建议给它。
+ */
+export async function closeFieldDefs(scope: FieldScope, term: string): Promise<FieldDef[]> {
+	const normalized = normalizeLabel(term);
+	if (!normalized) return [];
+
+	const defs = await listFieldDefs({ scope, status: "active" });
+
+	return defs.filter((def) => {
+		if (!def.agentWritable) return false;
+
+		return [def.key, def.label, ...def.aliases]
+			.map((name) => normalizeLabel(name))
+			.some((name) => name.includes(normalized) || normalized.includes(name));
+	});
+}
+
 export async function activeFieldKeys(scope: FieldScope): Promise<Set<string>> {
 	const defs = await listFieldDefs({ scope, status: "active" });
 

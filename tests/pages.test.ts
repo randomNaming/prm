@@ -103,7 +103,7 @@ afterAll(async () => {
 });
 
 describe.skipIf(!built)("页面渲染：简体中文、无金额、可导航", () => {
-	test("首页四象限看板、近期活动与快捷按钮", async () => {
+	test("首页四象限看板与近期活动", async () => {
 		const page = await html("/");
 
 		for (const label of ["紧急且重要", "重要不紧急", "紧急不重要", "不重要不紧急"]) {
@@ -111,7 +111,8 @@ describe.skipIf(!built)("页面渲染：简体中文、无金额、可导航", (
 		}
 
 		expect(page).toContain("近期活动");
-		expect(page).toContain("新建联系人");
+		// 首页不再放「新建联系人」，新建走联系人列表页。
+		expect(page).not.toContain("新建联系人");
 		// 推进中的商机是以卡片形式进看板的，不再是单独一块。
 		expect(page).toContain("示例科技 · 首单");
 		expect(page.includes("金额")).toBe(false);
@@ -183,15 +184,13 @@ describe.skipIf(!built)("页面渲染：简体中文、无金额、可导航", (
 		expect(detail).toContain("字段建议");
 	});
 
-	test("MCP 接入页：给出两个 server 的配置片段与工具清单", async () => {
+	test("MCP 接入页：给出写侧 server 的配置片段与工具清单", async () => {
 		const page = await html("/mcp");
 
 		expect(page).toContain("MCP 接入");
-		expect(page).toContain("mcp-wechat");
 		expect(page).toContain("mcp-crm");
 		expect(page).toContain("mcpServers");
 		expect(page).toContain("stdio");
-		expect(page).toContain("list_chats");
 		expect(page).toContain("import_wechat_chat");
 		expect(page).toContain("/api/intake");
 	});

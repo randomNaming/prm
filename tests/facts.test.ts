@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { contacts, contactFacts } from "../server/db/schema";
 import { db, closeDb } from "../server/utils/db";
-import { acceptFact, dismissFact, recordFact } from "../server/utils/facts";
+import { acceptFact, dismissFact, recordFact, revertFact } from "../server/utils/facts";
 import { canonicalValue, sameValue } from "../server/utils/fact-rules";
 import { contactFixture, evidence, resetDatabase } from "./helpers";
 
@@ -229,5 +229,119 @@ describe("FR-6 建议的接受与冲突关闭", () => {
 		const after = await db().select().from(contactFacts).where(eq(contactFacts.contactId, contact.id));
 		const statuses = after.map((fact) => `${fact.value}:${fact.status}`).sort();
 		expect(statuses).toEqual(["B:applied", "C:superseded"]);
+	});
+});
+
+describe("同值去重与撤销", () => {
+	test("字段现值已有同文（人工填的列值）时，再提同值直接拒绝，不生成建议", async () => {
+		const contact = await contactFixture({ businessRole: "买家" });
+
+		const result = await recordFact({
+			contactId: contact.id,
+			field: "业务角色",
+			value: "买家",
+			evidence: [evidence("crm.note", "使用者在对话中说明：「买家是美国客户」")],
+			source: "agent",
+		});
+
+		expect(result.stored).toBe(false);
+		expect(result.reason).toContain("已经是这个值");
+
+		const facts = await db().select().from(contactFacts).where(eq(contactFacts.contactId, contact.id));
+		expect(facts).toHaveLength(0);
+	});
+
+	test("字段名对不上时，拒绝信息里指出库里的相近字段", async () => {
+		const contact = await contactFixture();
+
+		const result = await recordFact({
+			contactId: contact.id,
+			field: "邮箱地址",
+			value: "a@example.com",
+			evidence: [evidence("crm.note", "邮箱 a@example.com")],
+			source: "agent",
+		});
+
+		expect(result.stored).toBe(false);
+		expect(result.reason).toContain("「邮箱」");
+	});
+
+	test("国家字段写入时把英文写法归一成标准中文国名", async () => {
+		const contact = await contactFixture();
+
+		const result = await recordFact({
+			contactId: contact.id,
+			field: "国家",
+			value: "United States",
+			evidence: [evidence("crm.note", "US customer")],
+			source: "agent",
+		});
+
+		expect(result.applied).toBe(true);
+
+		const [row] = await db().select().from(contacts).where(eq(contacts.id, contact.id));
+		expect(row.country).toBe("美国");
+	});
+
+	test("邮编走固定列写入", async () => {
+		const contact = await contactFixture();
+
+		const result = await recordFact({
+			contactId: contact.id,
+			field: "邮编",
+			value: "31170",
+			evidence: [evidence("crm.note", "31170 Tournefeuille")],
+			source: "agent",
+		});
+
+		expect(result.applied).toBe(true);
+
+		const [row] = await db().select().from(contacts).where(eq(contacts.id, contact.id));
+		expect(row.postalCode).toBe("31170");
+	});
+
+	test("撤销已写入的值：无独立列的字段值随之从档案消失", async () => {
+		const contact = await contactFixture();
+
+		await recordFact({
+			contactId: contact.id,
+			field: "手机",
+			value: "13800000000",
+			evidence: [evidence("crm.note", "手机 13800000000")],
+			source: "agent",
+		});
+
+		const [applied] = await db()
+			.select()
+			.from(contactFacts)
+			.where(eq(contactFacts.contactId, contact.id));
+		expect(applied.status).toBe("applied");
+
+		const undone = await revertFact(applied.id);
+		expect(undone.ok).toBe(true);
+
+		const [after] = await db().select().from(contactFacts).where(eq(contactFacts.id, applied.id));
+		expect(after.status).toBe("superseded");
+	});
+
+	test("撤销有独立列的字段值：列里的现值不动", async () => {
+		const contact = await contactFixture();
+
+		await recordFact({
+			contactId: contact.id,
+			field: "业务角色",
+			value: "买家",
+			evidence: [evidence("crm.note", "对方询问购买样品")],
+			source: "agent",
+		});
+
+		const [applied] = await db()
+			.select()
+			.from(contactFacts)
+			.where(eq(contactFacts.contactId, contact.id));
+		await revertFact(applied.id);
+
+		const [row] = await db().select().from(contacts).where(eq(contacts.id, contact.id));
+		expect(row.businessRole).toBe("买家");
 	});
 });

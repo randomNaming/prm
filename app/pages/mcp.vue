@@ -17,7 +17,7 @@ const sourceLabels: Record<string, string> = {
 		<div class="crm-section">
 			<h1 class="crm-title">MCP 接入</h1>
 			<p class="crm-muted">
-				平台不替客户端拉起 MCP Server，只把「两个包现在的状态」和「可直接粘贴的客户端配置」摆在这里。
+				平台不替客户端拉起 MCP Server，只把「写侧包现在的状态」和「可直接粘贴的客户端配置」摆在这里。
 				把 JSON 复制到你的 agent 客户端就能连上。
 			</p>
 		</div>

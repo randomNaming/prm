@@ -2,12 +2,7 @@
 import { ACTIVITY_KIND_LABELS } from "~/types/domain";
 
 const api = useApi();
-const router = useRouter();
-const { data, refresh } = await useAsyncData("dashboard", () => api.dashboard());
-
-const showCreate = ref(false);
-const submitting = ref(false);
-const errorText = ref("");
+const { data } = await useAsyncData("dashboard", () => api.dashboard());
 
 const greeting = computed(() => {
 	const hour = new Date().getHours();
@@ -17,32 +12,12 @@ const greeting = computed(() => {
 
 	return "晚上好";
 });
-
-async function createContact(payload: Record<string, unknown>) {
-	submitting.value = true;
-	errorText.value = "";
-
-	try {
-		const result = await api.createContact(payload);
-		showCreate.value = false;
-		await refresh();
-		await router.push(`/contacts/${result.contact.id}`);
-	} catch (error) {
-		errorText.value = error instanceof Error ? error.message : "保存失败。";
-	} finally {
-		submitting.value = false;
-	}
-}
 </script>
 
 <template>
 	<div class="crm-page">
-		<div class="crm-spread crm-section">
-			<div>
-				<h1 class="crm-greeting">{{ greeting }}</h1>
-				<p class="crm-muted">四象限看板：任务、商机、客户标记混在一起，按「现在该不该动它」排。</p>
-			</div>
-			<el-button type="primary" @click="showCreate = true">新建联系人</el-button>
+		<div class="crm-section">
+			<h1 class="crm-greeting">{{ greeting }}</h1>
 		</div>
 
 		<EisenhowerBoard class="crm-section" />
@@ -65,11 +40,6 @@ async function createContact(payload: Record<string, unknown>) {
 				</div>
 			</div>
 		</section>
-
-		<el-dialog v-model="showCreate" title="新建联系人" width="520">
-			<el-alert v-if="errorText" type="error" :closable="false" show-icon :title="errorText" />
-			<ContactForm :submitting="submitting" @submit="createContact" @cancel="showCreate = false" />
-		</el-dialog>
 	</div>
 </template>
 

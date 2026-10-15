@@ -1,6 +1,5 @@
 import type { FieldScope } from "../../app/types/domain";
 import { RELATIONSHIP_REPAIR } from "../../app/types/domain";
-
 export type BuiltinFieldSeed = {
 	id: string;
 	scope: FieldScope;
@@ -111,6 +110,30 @@ export const BUILTIN_FIELD_SEEDS: BuiltinFieldSeed[] = [
 		key: "address",
 		label: "地址",
 		aliases: ["联系地址", "通讯地址", "所在地址", "address", "addr"],
+		options: [],
+		dataType: "text",
+		agentWritable: true,
+	},
+	{
+		id: "fd_contact_country",
+		scope: "contact",
+		key: "country",
+		label: "国家",
+		// 「所在国家」是它前身（agent 提的自定义字段）的名字，留在别名里，
+		// 用旧叫法写入也能落到这个字段，不会再撞出一个同义字段。
+		aliases: ["所在国家", "国家/地区", "国别", "country", "country/region"],
+		// 选项表用不上：下拉的前端数据源是 app/utils/countries.ts 常量，
+		// agent 写入的英文写法由服务端 normalizeCountry 归一，都不经过 options。
+		options: [],
+		dataType: "text",
+		agentWritable: true,
+	},
+	{
+		id: "fd_contact_postal_code",
+		scope: "contact",
+		key: "postal_code",
+		label: "邮编",
+		aliases: ["邮政编码", "zipcode", "zip", "postal code", "postcode", "postal"],
 		options: [],
 		dataType: "text",
 		agentWritable: true,

@@ -1,7 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import {
 	BOARD_QUADRANTS,
-	BOARD_QUADRANT_HINTS,
 	BOARD_QUADRANT_LABELS,
 	RELATIONSHIP_REPAIR,
 	type Board,
@@ -141,7 +140,12 @@ async function contactItems(): Promise<RawBoardItem[]> {
 				detail: row.repairNote
 					? `${row.relationshipState}：${row.repairNote}`
 					: row.relationshipState,
-				badge: row.relationshipState === RELATIONSHIP_REPAIR ? "待修复" : null,
+				// badge 直接用状态原文：第四象限的词条显示「{姓名}{状态}」整句，
+				// 比如「David McGowan关系待修复」；重点维护是好事，不挂红字。
+				badge:
+					row.relationshipState === RELATIONSHIP_REPAIR || !isKeyAccount
+						? row.relationshipState
+						: null,
 				to: `/contacts/${row.id}`,
 				inferred: isKeyAccount ? ("important" as const) : ("neither" as const),
 				weight: 0,
@@ -171,7 +175,6 @@ export async function board(now = nowMs()): Promise<Board> {
 	const columns: BoardColumn[] = BOARD_QUADRANTS.map((quadrant) => ({
 		quadrant,
 		label: BOARD_QUADRANT_LABELS[quadrant],
-		hint: BOARD_QUADRANT_HINTS[quadrant],
 		items: items
 			.filter((item) => item.quadrant === quadrant)
 			// 越紧急越靠前；同类里按权重（逾期/停滞天数）降序，再按标题稳定排序。

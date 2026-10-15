@@ -12,6 +12,9 @@ export default defineNuxtConfig({
 
 	devtools: { enabled: false },
 
+	// 构建时遥测模块要往用户家目录写 .nuxtrc，家里这台机器会被系统拦（EPERM），干脆关掉。
+	telemetry: false,
+
 	compatibilityDate: "2026-10-12",
 
 	app: {

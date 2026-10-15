@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like } from "drizzle-orm";
 import type { IntakeArchive } from "../../app/types/domain";
 import { conversations, messages } from "../db/schema";
 import { db } from "./db";
+import { nowMs } from "./ids";
 
 /**
  * 聊天导入留底。
@@ -66,6 +67,7 @@ export async function intakeArchives(contactId: string): Promise<IntakeArchive[]
 			id: conversations.id,
 			title: conversations.title,
 			createdAt: conversations.createdAt,
+			viewedAt: conversations.viewedAt,
 		})
 		.from(conversations)
 		.where(
@@ -105,6 +107,23 @@ export async function intakeArchives(contactId: string): Promise<IntakeArchive[]
 		conversationId: row.id,
 		title: row.title ?? INTAKE_TITLE_PREFIX,
 		importedAt: row.createdAt ?? 0,
+		viewedAt: row.viewedAt ?? null,
 		summary: summaries.get(row.id) ?? null,
 	}));
+}
+
+/** 把一位联系人的聊天留底全部标为已看，返回这次实际标了几条（已看过的跳过）。 */
+export async function markIntakeViewed(contactId: string): Promise<number> {
+	const result = await db()
+		.update(conversations)
+		.set({ viewedAt: nowMs() })
+		.where(
+			and(
+				eq(conversations.contactId, contactId),
+				like(conversations.title, `${INTAKE_TITLE_PREFIX}%`),
+				isNull(conversations.viewedAt),
+			),
+		);
+
+	return result[0].affectedRows ?? 0;
 }

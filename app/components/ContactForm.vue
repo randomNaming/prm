@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { Company, Contact } from "~/types/domain";
 import { RELATIONSHIP_REPAIR } from "~/types/domain";
+import { COUNTRIES } from "~/utils/countries";
+import { parseAddress } from "~/utils/address-parse";
 
 const props = defineProps<{
 	contact?: Contact | null;
@@ -16,6 +18,7 @@ const api = useApi();
 const companies = ref<Company[]>([]);
 const relationOptions = ref<string[]>([]);
 const relationshipOptions = ref<string[]>([]);
+const countryNames = ref<string[]>(COUNTRIES.map((country) => country.zh));
 
 const form = reactive({
 	firstName: "",
@@ -25,6 +28,8 @@ const form = reactive({
 	phone: "",
 	wechatId: "",
 	address: "",
+	country: "",
+	postalCode: "",
 	businessRole: "",
 	relationshipState: "",
 	repairNote: "",
@@ -37,6 +42,47 @@ const form = reactive({
 /** 只有选中「关系待修复」才让人填修复说明。 */
 const needsRepair = computed(() => form.relationshipState === RELATIONSHIP_REPAIR);
 
+/** 中文/英文/两位代码都能搜，比如 中国 / america / US。 */
+function filterCountry(query: string) {
+	const text = query.trim();
+	const lower = text.toLowerCase();
+
+	countryNames.value = COUNTRIES.filter(
+		(country) =>
+			country.zh.includes(text) ||
+			country.en.toLowerCase().includes(lower) ||
+			country.code.toLowerCase() === lower,
+	).map((country) => country.zh);
+}
+
+/** 智能填写：粘贴完整地址文本，识别后填进表单。 */
+const smartText = ref("");
+const smartNote = ref<string | null>(null);
+
+function runSmartFill() {
+	const parsed = parseAddress(smartText.value);
+
+	if (!parsed) {
+		smartNote.value = "没有认出可填的内容：文本里至少要有电话、国家或街道之一。";
+		return;
+	}
+
+	if (parsed.name) form.firstName = parsed.name;
+	if (parsed.phone) form.phone = parsed.phone;
+	if (parsed.email) form.email = parsed.email;
+	if (parsed.country) form.country = parsed.country;
+	if (parsed.postalCode) form.postalCode = parsed.postalCode;
+	if (parsed.address) form.address = parsed.address;
+
+	// 识别成功不占版面回显，字段就摆在下面，一眼能看到；只有认不出时才提示。
+	smartNote.value = null;
+	smartText.value = "";
+}
+
+function clearSmart() {
+	smartText.value = "";
+	smartNote.value = null;
+}
 watch(
 	() => props.contact,
 	(contact) => {
@@ -47,6 +93,8 @@ watch(
 		form.phone = contact?.phone ?? "";
 		form.wechatId = contact?.wechatId ?? "";
 		form.address = contact?.address ?? "";
+		form.country = contact?.country ?? "";
+		form.postalCode = contact?.postalCode ?? "";
 		form.businessRole = contact?.businessRole ?? "";
 		form.relationshipState = contact?.relationshipState ?? "";
 		form.repairNote = contact?.repairNote ?? "";
@@ -88,6 +136,30 @@ function submit() {
 
 <template>
 	<el-form label-width="72px" @submit.prevent>
+		<el-form-item label="智能填写">
+			<div class="crm-smart">
+				<el-input
+					v-model="smartText"
+					type="textarea"
+					:rows="3"
+					placeholder="粘贴完整地址，例如：Maelle AGONDJO DONDIA +33 668496975, 18 Bd Vincent Auriol, 31170, Tournefeuille, Haute-Garonne, France"
+				/>
+				<div class="crm-smart__foot">
+					<span v-if="smartNote" class="crm-smart__note">{{ smartNote }}</span>
+					<span class="crm-row">
+						<el-button size="small" @click="clearSmart">清空</el-button>
+						<el-button
+							size="small"
+							type="primary"
+							:disabled="!smartText.trim()"
+							@click="runSmartFill"
+						>
+							地址识别
+						</el-button>
+					</span>
+				</div>
+			</div>
+		</el-form-item>
 		<el-form-item label="姓名" required>
 			<el-input v-model="form.firstName" placeholder="必填" maxlength="191" />
 		</el-form-item>
@@ -115,6 +187,21 @@ function submit() {
 		</el-form-item>
 		<el-form-item label="地址">
 			<el-input v-model="form.address" maxlength="191" />
+		</el-form-item>
+		<el-form-item label="邮编">
+			<el-input v-model="form.postalCode" maxlength="32" />
+		</el-form-item>
+		<el-form-item label="国家">
+			<el-select
+				v-model="form.country"
+				clearable
+				filterable
+				:filter-method="filterCountry"
+				placeholder="搜索：中国 / America / US"
+				style="width: 100%"
+			>
+				<el-option v-for="name in countryNames" :key="name" :label="name" :value="name" />
+			</el-select>
 		</el-form-item>
 		<el-form-item label="业务角色">
 			<el-select
@@ -174,3 +261,28 @@ function submit() {
 		</el-form-item>
 	</el-form>
 </template>
+
+<style scoped>
+.crm-smart {
+	width: 100%;
+	border: 1px solid var(--crm-line);
+	border-radius: 6px;
+	padding: 10px;
+	background: var(--crm-surface);
+}
+
+.crm-smart__foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.crm-smart__note {
+	flex: 1;
+	font-size: 12px;
+	line-height: 1.6;
+	color: #b3261e;
+}
+</style>

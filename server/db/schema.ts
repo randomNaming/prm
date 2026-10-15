@@ -43,6 +43,10 @@ export const contacts = mysqlTable(
 		phone: varchar("phone", { length: 64 }),
 		wechatId: varchar("wechat_id", { length: 191 }),
 		address: varchar("address", { length: 191 }),
+		/** 国家：存标准中文国名（见 app/utils/countries.ts），固定字段。 */
+		country: varchar("country", { length: 64 }),
+		/** 邮编：固定字段。 */
+		postalCode: varchar("postal_code", { length: 32 }),
 		businessRole: varchar("business_role", { length: 32 }),
 		/** 关系维护：留空 = 默认（长期养着的池子）。 */
 		relationshipState: varchar("relationship_state", { length: 32 }),
@@ -240,6 +244,8 @@ export const conversations = mysqlTable(
 		title: varchar("title", { length: 191 }),
 		createdAt: bigint("created_at", { mode: "number" }),
 		lastMessageAt: bigint("last_message_at", { mode: "number" }),
+		/** 聊天留底的已读标记：null = 没看过（详情页红点）。普通会话不用它。 */
+		viewedAt: bigint("viewed_at", { mode: "number" }),
 	},
 	(table) => [index("conversations_contact").on(table.contactId)],
 );
