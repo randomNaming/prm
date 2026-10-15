@@ -8,3 +8,6 @@ node_modules
 dist
 *.log
 .bun-cache
+
+# WorkBuddy 工具的本地记忆：个人笔记，不属于应用仓库，且历史上曾误存过密码
+.workbuddy/
