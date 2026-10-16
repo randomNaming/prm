@@ -11,6 +11,8 @@ export const TABLES = [
 	"board_pins",
 	"company_facts",
 	"contact_facts",
+	"relationship_insights",
+	"promises",
 	"activities",
 	"deals",
 	"contacts",
@@ -55,6 +57,7 @@ export async function contactFixture(input: Partial<ContactInput> = {}) {
 		address: input.address ?? null,
 		country: input.country ?? null,
 		postalCode: input.postalCode ?? null,
+		customerGrade: input.customerGrade ?? null,
 		businessRole: input.businessRole ?? null,
 		relationshipState: input.relationshipState ?? null,
 		repairNote: input.repairNote ?? null,
@@ -65,6 +68,6 @@ export async function contactFixture(input: Partial<ContactInput> = {}) {
 	});
 }
 
-export function evidence(kind = "crm.note", quote = "王小明，产品经理", ref: string | null = null) {
-	return { kind, quote, ref };
+export function evidence(kind = "crm.note", quote = "王小明，产品经理", ref: string | null = null, time: string | null = null) {
+	return { kind, quote, ref, time };
 }

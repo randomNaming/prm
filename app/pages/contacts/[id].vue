@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ACTIVITY_KIND_LABELS, DEAL_STAGES, FACT_FIELDS, FACT_FIELD_LABELS, RELATIONSHIP_REPAIR } from "~/types/domain";
-import type { IntakeArchive } from "~/types/domain";
+import { ACTIVITY_KIND_LABELS, COUNTERPART_TYPE_LABELS, DEAL_STAGES, FACT_FIELDS, FACT_FIELD_LABELS, RELATIONSHIP_REPAIR } from "~/types/domain";
+import type { IntakeArchive, PlaybookPayload, DualTrackPayload, PromiseItem } from "~/types/domain";
 import { copyText } from "~/utils/clipboard";
 
 const api = useApi();
@@ -57,6 +57,74 @@ const archiveError = ref("");
 const unreadArchives = computed(
 	() => (data.value?.archives ?? []).filter((item) => item.viewedAt === null).length,
 );
+
+// ===== 关系洞察（三层冰山的上两层）=====
+
+const playbook = computed(() => {
+	const insight = data.value?.insights.find((item) => item.kind === "playbook");
+	return insight ? (insight.payload as PlaybookPayload) : null;
+});
+
+const dualTrack = computed(() => {
+	const insight = data.value?.insights.find((item) => item.kind === "dual_track");
+	return insight ? (insight.payload as DualTrackPayload) : null;
+});
+
+const playbookGroups = computed(() => {
+	if (!playbook.value) return [];
+
+	return [
+		{ label: "画像与属性标签", tag: "warning" as const, items: playbook.value.profile ?? [] },
+		{ label: "商务价值与潜力", tag: "success" as const, items: playbook.value.business_value ?? [] },
+		{ label: "沟通爽点（吃哪一套）", tag: "primary" as const, items: playbook.value.sweet_spots ?? [] },
+		{ label: "沟通雷区（千万别踩）", tag: "danger" as const, items: playbook.value.taboos ?? [] },
+		{ label: "痛点与防御", tag: "info" as const, items: playbook.value.pain_points ?? [] },
+	].filter((group) => group.items.length > 0);
+});
+
+const dualTracks = computed(() => {
+	if (!dualTrack.value) return [];
+
+	return [
+		{ key: "transaction", label: "事务健康度", side: dualTrack.value.transaction_health },
+		{ key: "trust", label: "个人信任", side: dualTrack.value.personal_trust },
+	];
+});
+
+function trackBarWidth(score: number | null): string {
+	return `${Math.max(0, Math.min(100, ((score ?? 0) + 100) / 2))}%`;
+}
+
+// ===== 双向承诺账本 =====
+
+const promiseBusy = ref("");
+const promiseError = ref("");
+
+const openPromises = computed(() => (data.value?.promises ?? []).filter((item) => item.status === "open"));
+
+const promiseGroups = computed(() =>
+	(["ours", "theirs"] as const)
+		.map((direction) => ({
+			direction,
+			label: direction === "ours" ? "我方欠对方的（待兑现）" : "对方许我方的（待收割）",
+			items: openPromises.value.filter((item) => item.direction === direction),
+		}))
+		.filter((group) => group.items.length > 0),
+);
+
+async function closePromiseItem(item: PromiseItem, action: "fulfilled" | "cancelled") {
+	promiseBusy.value = item.id;
+	promiseError.value = "";
+
+	try {
+		await api.decidePromise(item.id, action);
+		await refresh();
+	} catch (error) {
+		promiseError.value = error instanceof Error ? error.message : "操作失败。";
+	} finally {
+		promiseBusy.value = "";
+	}
+}
 
 /** 完整寄收件地址 = 地址 + 国家，一键复制。内网 http 下没有剪贴板 API，copyText 有兜底。 */
 const addressCopied = ref(false);
@@ -145,6 +213,20 @@ async function research() {
 	}
 }
 
+/** 卡死的后台研究允许人工终止；正在跑的那一次会被请求级超时兜住很快退出。 */
+const cancelBusy = ref(false);
+
+async function cancelResearch() {
+	cancelBusy.value = true;
+
+	try {
+		await api.cancelResearch("contact", id.value);
+		await refresh();
+	} finally {
+		cancelBusy.value = false;
+	}
+}
+
 async function decideFact(payload: { id: string; action: "accept" | "reject" | "revert" }) {
 	factBusy.value = true;
 
@@ -200,9 +282,19 @@ async function changeStage(dealId: string, stage: string) {
 				<div>
 					<h1 class="crm-title">
 						{{ personName(data.contact) }}
-						<el-tag v-if="data.researching" type="warning" effect="light" size="small">
-							正在研究
-						</el-tag>
+						<el-popconfirm
+							v-if="data.researching"
+							title="终止这项后台研究？"
+							confirm-button-text="终止"
+							cancel-button-text="再等等"
+							@confirm="cancelResearch"
+						>
+							<template #reference>
+								<el-tooltip content="研究超过几分钟没结束多半是卡住了，点这里终止；之后可再点「重新研究」重跑。" placement="top">
+									<el-link type="warning" :underline="false">正在研究，点此终止</el-link>
+								</el-tooltip>
+							</template>
+						</el-popconfirm>
 					</h1>
 					<div class="crm-muted">
 						{{ data.contact.title ?? "职位未知" }}
@@ -225,6 +317,103 @@ async function changeStage(dealId: string, stage: string) {
 			<el-tabs v-model="activeTab">
 				<el-tab-pane label="概览" name="overview">
 					<div class="crm-grid">
+						<section v-if="playbook" class="crm-card crm-playbook">
+							<h2 class="crm-section__title">
+								客户洞察
+								<el-tag size="small" effect="plain">{{ COUNTERPART_TYPE_LABELS[playbook.counterpart_type] }}</el-tag>
+							</h2>
+							<p class="crm-muted crm-playbook__hint">来自聊天记录的画像、商务价值与相处洞察，悬停标签看原话依据。</p>
+							<div v-for="group in playbookGroups" :key="group.label" class="crm-playbook__group">
+								<div class="crm-playbook__label">{{ group.label }}</div>
+								<el-popover
+									v-for="(item, index) in group.items"
+									:key="index"
+									trigger="hover"
+									width="340"
+								>
+									<template #reference>
+										<el-tag class="crm-playbook__item" :type="group.tag" effect="plain">
+											{{ item.text }}
+										</el-tag>
+									</template>
+									<div class="crm-evidence-pop">
+										<p>「{{ item.quote }}」</p>
+										<span class="crm-muted">{{ item.time ?? "时间未知" }}</span>
+									</div>
+								</el-popover>
+							</div>
+						</section>
+
+						<section v-if="dualTrack" class="crm-card crm-dual-track">
+							<h2 class="crm-section__title">关系双轨温度</h2>
+							<div v-for="track in dualTracks" :key="track.key" class="crm-dual-track__row">
+								<div class="crm-dual-track__head">
+									<strong>{{ track.label }}</strong>
+									<el-tag size="small" :type="(track.side.score ?? 0) >= 0 ? 'success' : 'danger'" effect="plain">
+										{{ track.side.level }}
+									</el-tag>
+								</div>
+								<div class="crm-dual-track__bar">
+									<div class="crm-dual-track__fill" :style="{ width: trackBarWidth(track.side.score) }" />
+								</div>
+								<el-popover v-if="track.side.note" trigger="hover" width="340">
+									<template #reference>
+										<div class="crm-muted crm-dual-track__note">{{ track.side.note }}</div>
+									</template>
+									<div class="crm-evidence-pop">
+										<p v-if="track.side.quote">「{{ track.side.quote }}」</p>
+										<span class="crm-muted">{{ track.side.time ?? "时间未知" }}</span>
+									</div>
+								</el-popover>
+								<div v-else class="crm-muted crm-dual-track__note">—</div>
+							</div>
+						</section>
+
+						<section v-if="data.promises.length > 0" class="crm-card crm-ledger">
+							<h2 class="crm-section__title">双向承诺账本</h2>
+							<el-alert v-if="promiseError" type="error" :closable="false" show-icon :title="promiseError" />
+							<div v-for="group in promiseGroups" :key="group.direction" class="crm-ledger__group">
+								<div class="crm-ledger__label">{{ group.label }}</div>
+								<div v-for="item in group.items" :key="item.id" class="crm-ledger__item">
+									<el-popover trigger="hover" width="340">
+										<template #reference>
+											<div class="crm-ledger__title">
+												{{ item.title }}
+												<el-tag v-if="item.dueHint" size="small" effect="plain">{{ item.dueHint }}</el-tag>
+											</div>
+										</template>
+										<div class="crm-evidence-pop">
+											<p v-for="(ev, index) in item.evidence" :key="index">「{{ ev.quote }}」</p>
+											<span class="crm-muted">{{ item.evidence[0]?.time ?? "时间未知" }}</span>
+										</div>
+									</el-popover>
+									<div class="crm-row">
+										<el-button
+											size="small"
+											type="primary"
+											link
+											:loading="promiseBusy === item.id"
+											@click="closePromiseItem(item, 'fulfilled')"
+										>
+											已兑现
+										</el-button>
+										<el-button
+											size="small"
+											link
+											type="danger"
+											:loading="promiseBusy === item.id"
+											@click="closePromiseItem(item, 'cancelled')"
+										>
+											不兑现
+										</el-button>
+									</div>
+								</div>
+							</div>
+							<div v-if="promiseGroups.length === 0" class="crm-muted crm-ledger__label">
+								没有待处理的承诺（历史 {{ data.promises.length }} 条已闭环）。
+							</div>
+						</section>
+
 						<section class="crm-card">
 							<h2 class="crm-section__title">基本信息</h2>
 							<el-descriptions :column="1" border>
@@ -246,6 +435,12 @@ async function changeStage(dealId: string, stage: string) {
 								</el-descriptions-item>
 								<el-descriptions-item label="国家">{{ data.contact.country ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="邮编">{{ data.contact.postalCode ?? "—" }}</el-descriptions-item>
+								<el-descriptions-item label="客户等级">
+									<el-tag v-if="data.contact.customerGrade" size="small" type="warning" effect="plain">
+										{{ data.contact.customerGrade }}
+									</el-tag>
+									<span v-else>—</span>
+								</el-descriptions-item>
 								<el-descriptions-item label="业务角色">{{ data.contact.businessRole ?? "—" }}</el-descriptions-item>
 								<el-descriptions-item label="关系维护">
 									<el-tag
@@ -441,6 +636,89 @@ async function changeStage(dealId: string, stage: string) {
 
 .crm-copy {
 	margin-left: 8px;
+}
+
+.crm-playbook__hint {
+	font-size: 12px;
+	margin: 0 0 8px;
+}
+
+.crm-playbook__group {
+	margin-bottom: 10px;
+}
+
+.crm-playbook__label {
+	font-size: 12px;
+	color: var(--crm-muted);
+	margin-bottom: 6px;
+}
+
+.crm-playbook__item {
+	margin: 0 6px 6px 0;
+	cursor: default;
+}
+
+.crm-evidence-pop p {
+	margin: 0 0 4px;
+	line-height: 1.7;
+	font-size: 13px;
+}
+
+.crm-dual-track__row {
+	margin-bottom: 14px;
+}
+
+.crm-dual-track__head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 6px;
+}
+
+.crm-dual-track__bar {
+	height: 8px;
+	border-radius: 4px;
+	background: var(--crm-surface);
+	overflow: hidden;
+}
+
+.crm-dual-track__fill {
+	height: 100%;
+	border-radius: 4px;
+	background: linear-gradient(90deg, #d94a4a, var(--crm-brand));
+}
+
+.crm-dual-track__note {
+	font-size: 12px;
+	margin-top: 4px;
+	cursor: default;
+}
+
+.crm-ledger__group {
+	margin-bottom: 10px;
+}
+
+.crm-ledger__label {
+	font-size: 12px;
+	color: var(--crm-muted);
+	margin-bottom: 6px;
+}
+
+.crm-ledger__item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 5px 0;
+	border-bottom: 1px dashed var(--crm-line);
+}
+
+.crm-ledger__item:last-child {
+	border-bottom: none;
+}
+
+.crm-ledger__title {
+	cursor: default;
 }
 
 .crm-note-body {

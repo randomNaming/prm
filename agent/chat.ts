@@ -120,7 +120,8 @@ export async function* chatStream(input: {
 			tools: crmTools(),
 			stopWhen: stepCountIs(CONFIG.agent.maxSteps),
 			maxOutputTokens: CONFIG.agent.maxOutputTokens,
-			maxRetries: CONFIG.agent.maxRetries,
+			abortSignal: AbortSignal.timeout(CONFIG.agent.requestTimeoutMs),
+		maxRetries: CONFIG.agent.maxRetries,
 		});
 
 		for await (const part of result.fullStream) {

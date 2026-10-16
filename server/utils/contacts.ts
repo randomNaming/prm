@@ -20,9 +20,11 @@ import {
 } from "../db/schema";
 import { db } from "./db";
 import { addFieldOption } from "./fields";
+import { latestInsights } from "./insights";
 import { intakeArchives } from "./intake-archive";
 import { appliedFactMap } from "./list-facts";
 import { newId, nowMs } from "./ids";
+import { allPromises } from "./promises";
 import {
 	activityKind,
 	dealStage,
@@ -143,6 +145,14 @@ export async function getContact(id: string): Promise<Contact | null> {
 	return row ? toContact(row) : null;
 }
 
+/** 按姓名精确找未归档联系人（导入增量去重时定位索引源用，不建档）。 */
+export async function findContactByName(name: string): Promise<Contact | null> {
+	const trimmed = name.trim();
+	if (!trimmed) return null;
+
+	return findContactByColumn(contacts.firstName, trimmed);
+}
+
 export async function createContact(input: ContactInput): Promise<Contact> {
 	const at = nowMs();
 	const id = newId();
@@ -159,6 +169,7 @@ export async function createContact(input: ContactInput): Promise<Contact> {
 		address: input.address,
 		country: input.country,
 		postalCode: input.postalCode,
+		customerGrade: input.customerGrade,
 		businessRole: input.businessRole,
 		relationshipState: input.relationshipState,
 		repairNote: input.repairNote,
@@ -171,6 +182,7 @@ export async function createContact(input: ContactInput): Promise<Contact> {
 
 	await rememberRoleOption("contact", "business_role", input.businessRole);
 	await rememberRoleOption("contact", "relationship_state", input.relationshipState);
+	await rememberRoleOption("contact", "customer_grade", input.customerGrade);
 
 	const created = await getContact(id);
 	if (!created) throw new Error("联系人创建失败。");
@@ -256,6 +268,7 @@ export async function ensureContact(input: EnsureContactLookup): Promise<EnsureC
 		address: null,
 		country: null,
 		postalCode: null,
+		customerGrade: null,
 		businessRole: null,
 		relationshipState: null,
 		repairNote: null,
@@ -285,6 +298,7 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
 			address: input.address,
 			country: input.country,
 			postalCode: input.postalCode,
+			customerGrade: input.customerGrade,
 			businessRole: input.businessRole,
 			relationshipState: input.relationshipState,
 			// 关系恢复正常后把修复说明一起清掉，不留过期的旧说明。
@@ -298,6 +312,7 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
 
 	await rememberRoleOption("contact", "business_role", input.businessRole);
 	await rememberRoleOption("contact", "relationship_state", input.relationshipState);
+	await rememberRoleOption("contact", "customer_grade", input.customerGrade);
 
 	return getContact(id);
 }
@@ -426,7 +441,9 @@ export async function contactIsResearching(contactId: string): Promise<boolean> 
 		.where(
 			and(
 				eq(agentTasks.targetId, contactId),
+				// 只算真正在推进的：未来的复查预约是排期，不该让详情页显示「正在研究」。
 				sql`${agentTasks.status} IN ('pending', 'running')`,
+				sql`(${agentTasks.status} = 'running' OR ${agentTasks.runAt} IS NULL OR ${agentTasks.runAt} <= ${nowMs()})`,
 			),
 		)
 		.limit(1);
@@ -438,14 +455,17 @@ export async function contactDetail(id: string): Promise<ContactDetail | null> {
 	const contact = await getContact(id);
 	if (!contact) return null;
 
-	const [company, deals, activities, facts, researching, archives] = await Promise.all([
-		contactCompany(contact.companyId),
-		contactDeals(id),
-		contactActivities(id, 50),
-		contactFactsFor(id),
-		contactIsResearching(id),
-		intakeArchives(id),
-	]);
+	const [company, deals, activities, facts, researching, archives, insights, promises] =
+		await Promise.all([
+			contactCompany(contact.companyId),
+			contactDeals(id),
+			contactActivities(id, 50),
+			contactFactsFor(id),
+			contactIsResearching(id),
+			intakeArchives(id),
+			latestInsights(id),
+			allPromises(id),
+		]);
 
-	return { contact, company, deals, activities, facts, researching, archives };
+	return { contact, company, deals, activities, facts, researching, archives, insights, promises };
 }

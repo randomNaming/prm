@@ -78,9 +78,107 @@ export const BOARD_QUADRANT_LABELS: Record<BoardQuadrant, string> = {
 	neither: "不重要不紧急",
 };
 
-export const BOARD_ITEM_TYPES = ["task", "deal", "contact"] as const;
+export const BOARD_ITEM_TYPES = ["task", "deal", "contact", "promise"] as const;
 
 export type BoardItemType = (typeof BOARD_ITEM_TYPES)[number];
+
+/** 承诺方向：ours 是我方欠对方的待兑现债务，theirs 是对方许我方的待收割筹码。 */
+export const PROMISE_DIRECTIONS = ["ours", "theirs"] as const;
+
+export type PromiseDirection = (typeof PROMISE_DIRECTIONS)[number];
+
+export const PROMISE_DIRECTION_LABELS: Record<PromiseDirection, string> = {
+	ours: "我方欠",
+	theirs: "对方许",
+};
+
+export const PROMISE_STATUSES = ["open", "fulfilled", "cancelled"] as const;
+
+export type PromiseStatus = (typeof PROMISE_STATUSES)[number];
+
+export const PROMISE_STATUS_LABELS: Record<PromiseStatus, string> = {
+	open: "待处理",
+	fulfilled: "已兑现",
+	cancelled: "已关闭",
+};
+
+/** 一条洞察里的单项：正文 + 原话锚点（防幻觉，悬停即回忆语境）。 */
+export type InsightItem = {
+	text: string;
+	quote: string;
+	time: string | null;
+};
+
+/**
+ * 《客户洞察》（原相处使用说明书）：画像标签 + 商务价值 + 痛点 / 爽点 / 雷区。
+ * profile 与 business_value 是后扩的两组，旧版本 payload 可能缺省，前端按空数组兜底。
+ */
+export type PlaybookPayload = {
+	counterpart_type: "customer" | "supplier" | "friend";
+	/** 身份与属性标签：B2B 采购商、样品测试买家、Tax Exempt、偏好直飞空运…… */
+	profile: InsightItem[];
+	/** 商务价值判断：首单状态、LTV 潜力、复购预期、风险提示…… */
+	business_value: InsightItem[];
+	pain_points: InsightItem[];
+	sweet_spots: InsightItem[];
+	taboos: InsightItem[];
+};
+
+/** 双轨温度计的一条轨道：分级标签 + 可选分值 + 依据。 */
+export type DualTrackSide = {
+	level: string;
+	score: number | null;
+	note: string;
+	quote: string | null;
+	time: string | null;
+};
+
+/** 事务健康度与个人信任分开评：物流事故不等于关系破裂。 */
+export type DualTrackPayload = {
+	transaction_health: DualTrackSide;
+	personal_trust: DualTrackSide;
+};
+
+export const INSIGHT_KINDS = ["playbook", "dual_track"] as const;
+
+export type InsightKind = (typeof INSIGHT_KINDS)[number];
+
+export const INSIGHT_KIND_LABELS: Record<InsightKind, string> = {
+	playbook: "相处使用说明书",
+	dual_track: "关系双轨温度计",
+};
+
+export const COUNTERPART_TYPE_LABELS: Record<PlaybookPayload["counterpart_type"], string> = {
+	customer: "客户",
+	supplier: "供应商/物流",
+	friend: "朋友/人脉",
+};
+
+export type RelationshipInsight = {
+	id: string;
+	contactId: string;
+	kind: InsightKind;
+	payload: PlaybookPayload | DualTrackPayload;
+	evidence: Evidence[];
+	source: string;
+	status: FactStatus;
+	createdAt: number;
+};
+
+export type PromiseItem = {
+	id: string;
+	contactId: string;
+	direction: PromiseDirection;
+	title: string;
+	detail: string | null;
+	dueHint: string | null;
+	status: PromiseStatus;
+	evidence: Evidence[];
+	source: string;
+	createdAt: number;
+	closedAt: number | null;
+	closedNote: string | null;
+};
 
 export type BoardItem = {
 	type: BoardItemType;
@@ -123,6 +221,7 @@ export const FACT_FIELDS = [
 	"address",
 	"country",
 	"postal_code",
+	"customer_grade",
 	"linkedin",
 	"github",
 ] as const;
@@ -137,6 +236,7 @@ export const FACT_FIELD_LABELS: Record<FactField, string> = {
 	address: "地址",
 	country: "国家",
 	postal_code: "邮编",
+	customer_grade: "客户等级",
 	linkedin: "领英主页",
 	github: "GitHub 主页",
 };
@@ -209,6 +309,8 @@ export type Evidence = {
 	kind: string;
 	quote: string;
 	ref: string | null;
+	/** 原话在聊天里对应的时间戳（如 2026-09-25 21:25）。旧数据为 null。 */
+	time: string | null;
 };
 
 export type Contact = {
@@ -225,6 +327,8 @@ export type Contact = {
 	country: string | null;
 	/** 邮编。 */
 	postalCode: string | null;
+	/** 客户等级：商务价值分级标签。 */
+	customerGrade: string | null;
 	businessRole: string | null;
 	/** 关系维护。留空 = 正常关系，进「长期养着」的池子（节日问候、群发营销）。 */
 	relationshipState: string | null;
@@ -314,6 +418,8 @@ export type AgentTask = {
 	kind: string;
 	targetType: string | null;
 	targetId: string | null;
+	/** 目标记录的名字（status 接口解析带出，弹层直接显示人名/公司名）。 */
+	targetName?: string | null;
 	payload: TaskPayload | null;
 	status: string;
 	priority: number;
@@ -385,12 +491,17 @@ export type Dashboard = {
 };
 
 export type QueueStatus = {
+	/** 已到期待跑 + 执行中的任务数（用户感知的「进行中」）。 */
 	pending: number;
 	running: number;
 	failed: number;
+	/** 已排期但未到期的任务数（未来的复查预约），不算「进行中」。 */
+	scheduled: number;
 	agentEnabled: boolean;
 	agentReason: string;
 	model: string;
+	/** 最近的任务（含排队/执行中的），顶栏队列管理弹层用。 */
+	tasks: AgentTask[];
 };
 
 /**
@@ -419,6 +530,10 @@ export type ContactDetail = {
 	researching: boolean;
 	/** 这个联系人身上历次聊天导入的留底，按导入时间倒序。 */
 	archives: IntakeArchive[];
+	/** 最新一版的相处说明书与双轨温度（每个 kind 一条，历史版本不回传）。 */
+	insights: RelationshipInsight[];
+	/** 双向承诺账本：含已闭环的，前端按状态分组。 */
+	promises: PromiseItem[];
 };
 
 export type CompanyDetail = {

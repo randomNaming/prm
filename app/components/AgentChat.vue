@@ -227,7 +227,7 @@ watch(focus, async () => {
 					v-model="input"
 					type="textarea"
 					:rows="3"
-					placeholder="用中文提问，回车换行，点发送。"
+					placeholder="用中文提问，回车换行，点发送。试试：帮我回复他的催件消息。"
 					@keydown.ctrl.enter="send"
 				/>
 				<el-button type="primary" :loading="streaming" @click="send">发送</el-button>

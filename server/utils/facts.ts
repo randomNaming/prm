@@ -22,6 +22,7 @@ type FactColumn =
 	| "address"
 	| "country"
 	| "postalCode"
+	| "customerGrade"
 	| "businessRole"
 	| "linkedin"
 	| "github";
@@ -34,6 +35,7 @@ const FIELD_COLUMNS: Record<string, FactColumn> = {
 	address: "address",
 	country: "country",
 	postal_code: "postalCode",
+	customer_grade: "customerGrade",
 	business_role: "businessRole",
 	linkedin: "linkedin",
 	github: "github",

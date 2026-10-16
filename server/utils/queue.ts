@@ -18,6 +18,7 @@ export const TASK_STATUS = {
 	running: "running",
 	done: "done",
 	failed: "failed",
+	cancelled: "cancelled",
 } as const;
 
 export const TARGET_TYPES = {
@@ -216,11 +217,17 @@ export async function claimDueTask(): Promise<AgentTask | null> {
 export async function finishTask(taskId: string, error?: string): Promise<void> {
 	const at = nowMs();
 
+	// 只收尾还没被人工终止的任务：用户点了「终止」后，迟到的僵尸运行不允许覆盖结果。
+	const guard = and(
+		eq(agentTasks.id, taskId),
+		inArray(agentTasks.status, [TASK_STATUS.pending, TASK_STATUS.running]),
+	);
+
 	if (!error) {
 		await db()
 			.update(agentTasks)
 			.set({ status: TASK_STATUS.done, finishedAt: at, error: null, leaseUntil: null })
-			.where(eq(agentTasks.id, taskId));
+			.where(guard);
 
 		return;
 	}
@@ -240,7 +247,35 @@ export async function finishTask(taskId: string, error?: string): Promise<void> 
 				? { status: TASK_STATUS.failed, finishedAt: at, error, leaseUntil: null }
 				: { status: TASK_STATUS.pending, runAt: at + CONFIG.queue.leaseMs, error, leaseUntil: null },
 		)
-		.where(eq(agentTasks.id, taskId));
+		.where(guard);
+}
+
+/**
+ * 人工终止：把目标记录上还没跑完的研究任务直接判死。
+ * 正在进程内运行的那一次会被请求级超时兜住（见 CONFIG.agent.requestTimeoutMs），
+ * 它结束后 finishTask 会因状态已 cancelled 而跳过，不会复活。
+ */
+export async function cancelAgentTasks(input: {
+	targetType: string;
+	targetId: string;
+}): Promise<number> {
+	const result = await db()
+		.update(agentTasks)
+		.set({
+			status: TASK_STATUS.cancelled,
+			finishedAt: nowMs(),
+			error: "人工终止。",
+			leaseUntil: null,
+		})
+		.where(
+			and(
+				eq(agentTasks.targetType, input.targetType),
+				eq(agentTasks.targetId, input.targetId),
+				inArray(agentTasks.status, [TASK_STATUS.pending, TASK_STATUS.running]),
+			),
+		);
+
+	return result[0].affectedRows;
 }
 
 export async function recoverExpiredLeases(): Promise<number> {
@@ -263,18 +298,29 @@ export async function queueStatus(): Promise<{
 	pending: number;
 	running: number;
 	failed: number;
+	/** 已排期但还没到期的任务数（主要是未来的复查预约）——不算「进行中」。 */
+	scheduled: number;
 }> {
 	const rows = await db()
-		.select({ status: agentTasks.status, total: count() })
+		.select({
+			status: agentTasks.status,
+			runAt: agentTasks.runAt,
+			total: count(),
+		})
 		.from(agentTasks)
-		.groupBy(agentTasks.status);
+		.where(inArray(agentTasks.status, [TASK_STATUS.pending, TASK_STATUS.running, TASK_STATUS.failed]))
+		.groupBy(agentTasks.status, agentTasks.runAt);
 
-	const totals = { pending: 0, running: 0, failed: 0 };
+	const at = nowMs();
+	const totals = { pending: 0, running: 0, failed: 0, scheduled: 0 };
 
 	for (const row of rows) {
-		if (row.status === TASK_STATUS.pending) totals.pending = Number(row.total);
-		if (row.status === TASK_STATUS.running) totals.running = Number(row.total);
-		if (row.status === TASK_STATUS.failed) totals.failed = Number(row.total);
+		const total = Number(row.total);
+
+		if (row.status === TASK_STATUS.running) totals.running += total;
+		else if (row.status === TASK_STATUS.failed) totals.failed += total;
+		else if (row.runAt !== null && Number(row.runAt) > at) totals.scheduled += total;
+		else totals.pending += total;
 	}
 
 	return totals;

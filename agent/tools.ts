@@ -6,6 +6,8 @@ import { companyDetail, ensureCompany } from "../server/utils/companies";
 import { recordCompanyFact } from "../server/utils/company-facts";
 import { CONFIG } from "../server/utils/config";
 import { addFieldOption, findFieldDef, proposeField } from "../server/utils/fields";
+import { recordInsight } from "../server/utils/insights";
+import { recordPromise } from "../server/utils/promises";
 import { roleClassifier } from "./role-classifier";
 import { contactDetail, ensureContact, linkContactCompany } from "../server/utils/contacts";
 import { dealDetail } from "../server/utils/deals";
@@ -24,6 +26,28 @@ const evidenceSchema = z.object({
 		.describe("来源类型，例如 crm.note、crm.activity、crm.contact、wechat.chat"),
 	quote: z.string().trim().min(1).describe("库内原文摘录，必须逐字来自 CRM 数据"),
 	ref: z.string().trim().max(191).nullish().describe("出处：记录 id 或活动标题"),
+	time: z
+		.string()
+		.trim()
+		.max(32)
+		.nullish()
+		.describe("原话在聊天里对应的时间戳，例如 2026-09-25 21:25。能取到就必须给"),
+});
+
+const insightItemInputSchema = z.array(
+	z.object({
+		text: z.string().trim().min(1),
+		quote: z.string().trim().min(1),
+		time: z.string().trim().max(32).nullish(),
+	}),
+);
+
+const dualTrackSideInputSchema = z.object({
+	level: z.string().trim().min(1),
+	score: z.number().min(-100).max(100).nullish(),
+	note: z.string().trim(),
+	quote: z.string().trim().nullish(),
+	time: z.string().trim().max(32).nullish(),
 });
 
 export function crmTools() {
@@ -48,6 +72,7 @@ export function crmTools() {
 						address: detail.contact.address,
 						country: detail.contact.country,
 						postal_code: detail.contact.postalCode,
+						customer_grade: detail.contact.customerGrade,
 						linkedin: detail.contact.linkedin,
 						github: detail.contact.github,
 						notes: detail.contact.notes,
@@ -70,6 +95,13 @@ export function crmTools() {
 						completed_at: iso(activity.completedAt),
 						created_at: iso(activity.createdAt),
 					})),
+					promises: detail.promises
+						.filter((promise) => promise.status === "open")
+						.map((promise) => ({
+							direction: promise.direction,
+							title: promise.title,
+							due_hint: promise.dueHint,
+						})),
 					facts: detail.facts.map((fact) => ({
 						field: fact.field,
 						value: fact.value,
@@ -192,6 +224,7 @@ export function crmTools() {
 						kind: item.kind,
 						quote: item.quote,
 						ref: item.ref ?? null,
+						time: item.time ?? null,
 					})),
 					source: input.source,
 				});
@@ -224,6 +257,7 @@ export function crmTools() {
 						kind: item.kind,
 						quote: item.quote,
 						ref: item.ref ?? null,
+						time: item.time ?? null,
 					})),
 					source: input.source,
 				});
@@ -355,6 +389,7 @@ export function crmTools() {
 					kind: item.kind,
 					quote: item.quote,
 					ref: item.ref ?? null,
+					time: item.time ?? null,
 				}));
 
 				if (input.scope === "company") {
@@ -410,6 +445,7 @@ export function crmTools() {
 						kind: item.kind,
 						quote: item.quote,
 						ref: item.ref ?? null,
+						time: item.time ?? null,
 					})),
 				});
 
@@ -441,6 +477,87 @@ export function crmTools() {
 					label: result.def.label,
 					note: "已提交新字段建议，等人在界面上确认后再生效。",
 				};
+			},
+		}),
+
+		record_insight: tool({
+			description: [
+				"把《客户洞察》（kind=playbook）或《关系双轨温度计》（kind=dual_track）整段写入联系人。",
+				"每次调用是整段刷新：旧版自动退场保留历史，所以每次都给完整内容，不要只给增量。",
+				"playbook 的 payload：counterpart_type（customer/supplier/friend）+ 五个数组，",
+				"每项 {text: 洞察一句话, quote: 对方原话逐字摘录, time: 原话时间戳}：",
+				"· profile：身份与属性标签（如 B2B 采购商、样品测试买家、Tax Exempt、偏好直飞空运）；",
+				"· business_value：商务价值判断（首单状态、LTV 潜力、复购预期、风险提示）；",
+				"· pain_points / sweet_spots / taboos：痛点、爽点、雷区。没有的数组给空数组。",
+				"dual_track 的 payload：transaction_health 与 personal_trust 两轨分开评，每轨 {level: 分级词, score: -100~100 或 null, note: 一句话依据, quote, time}。",
+				"每一条都必须有原话锚点：没有 quote 就不要写这条洞察，绝不编造。",
+			].join(""),
+			inputSchema: z.object({
+				contact_id: z.string().trim().min(1),
+				kind: z.enum(["playbook", "dual_track"]),
+				payload: z
+					.object({
+						counterpart_type: z.enum(["customer", "supplier", "friend"]).optional(),
+						profile: insightItemInputSchema.optional(),
+						business_value: insightItemInputSchema.optional(),
+						pain_points: insightItemInputSchema.optional(),
+						sweet_spots: insightItemInputSchema.optional(),
+						taboos: insightItemInputSchema.optional(),
+						transaction_health: dualTrackSideInputSchema.optional(),
+						personal_trust: dualTrackSideInputSchema.optional(),
+					})
+					.passthrough(),
+				evidence: z.array(evidenceSchema).min(1),
+				source: z.string().trim().max(16).default("agent"),
+			}),
+			execute: async (input) => {
+				return recordInsight({
+					contactId: input.contact_id,
+					kind: input.kind,
+					payload: input.payload,
+					evidence: input.evidence.map((item) => ({
+						kind: item.kind,
+						quote: item.quote,
+						ref: item.ref ?? null,
+						time: item.time ?? null,
+					})),
+					source: input.source,
+				});
+			},
+		}),
+
+		record_promise: tool({
+			description: [
+				"把聊天中出现的承诺记入双向账本：direction=ours 是我方答应对方的（待兑现债务），direction=theirs 是对方答应我方的（待收割筹码）。",
+				"title 一句话概括（如「下一单给 8% 折扣补偿」「签收核验后给好评」）；detail 补充上下文；",
+				"due_hint 写条件触发的文本提示（如「样品签收后3天」「抵达珀斯时」），没有可靠时点就不要编日期。",
+				"每条必须带 evidence：对方或我方在聊天里的原话逐字摘录 + 时间戳。",
+				"调用前必须先 read_contact 对照「promises」账本：同一事项换个措辞、详略不同都不要再记（服务端也会按归一化标题拒绝）；只有新承诺、或条款实质变化（比例/条件变了）才记录。",
+			].join(""),
+			inputSchema: z.object({
+				contact_id: z.string().trim().min(1),
+				direction: z.enum(["ours", "theirs"]),
+				title: z.string().trim().min(1).max(191),
+				detail: z.string().trim().max(191).nullish(),
+				due_hint: z.string().trim().max(64).nullish(),
+				evidence: z.array(evidenceSchema).min(1),
+				source: z.string().trim().max(16).default("agent"),
+			}),
+			execute: async (input) => {
+				return recordPromise({
+					contactId: input.contact_id,
+					direction: input.direction,
+					title: input.title,
+					detail: input.detail ?? null,
+					dueHint: input.due_hint ?? null,
+					evidence: input.evidence.map((item) => ({
+						kind: item.kind,
+						quote: item.quote,
+						ref: item.ref ?? null,
+						time: item.time ?? null,
+					})),
+					source: input.source,
+				});
 			},
 		}),
 

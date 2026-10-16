@@ -193,7 +193,9 @@ export async function companyIsResearching(companyId: string): Promise<boolean> 
 		.where(
 			and(
 				eq(agentTasks.targetId, companyId),
+				// 只算真正在推进的：未来的复查预约是排期，不该让详情页显示「正在研究」。
 				sql`${agentTasks.status} IN ('pending', 'running')`,
+				sql`(${agentTasks.status} = 'running' OR ${agentTasks.runAt} IS NULL OR ${agentTasks.runAt} <= ${nowMs()})`,
 			),
 		)
 		.limit(1);

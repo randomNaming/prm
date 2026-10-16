@@ -22,6 +22,7 @@ export const contactInput = z.object({
 	address: blankToNull(CONFIG.text.maxFieldLength),
 	country: blankToNull(64),
 	postalCode: blankToNull(32),
+	customerGrade: blankToNull(32),
 	businessRole: blankToNull(32),
 	relationshipState: blankToNull(32),
 	repairNote: blankToNull(CONFIG.text.maxFieldLength),
@@ -86,6 +87,13 @@ export const evidenceItem = z.object({
 	kind: text(64).min(1, "证据缺少来源类型"),
 	quote: text(CONFIG.text.maxQuoteLength).min(1, "证据缺少原文摘录"),
 	ref: blankToNull(CONFIG.text.maxFieldLength),
+	// 原话时间戳。旧数据没有这一键，归一成 null，向前兼容。
+	time: z
+		.string()
+		.trim()
+		.max(32)
+		.nullish()
+		.transform((value) => (value ? value : null)),
 });
 
 export const recordFactInput = z.object({

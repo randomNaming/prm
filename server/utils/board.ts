@@ -9,7 +9,7 @@ import {
 	type BoardItemType,
 	type BoardQuadrant,
 } from "../../app/types/domain";
-import { activities, boardPins, contacts, deals } from "../db/schema";
+import { activities, boardPins, contacts, deals, promises as promisesTable } from "../db/schema";
 import { CONFIG } from "./config";
 import { db } from "./db";
 import { nowMs } from "./ids";
@@ -153,6 +153,40 @@ async function contactItems(): Promise<RawBoardItem[]> {
 		});
 }
 
+/**
+ * 承诺账本进看板：我方欠的进「重要不紧急」（要排期兑现），
+ * 对方许的进「不重要不紧急」（待收割的期权，不急）。
+ */
+async function promiseItems(): Promise<RawBoardItem[]> {
+	const rows = await db()
+		.select()
+		.from(promisesTable)
+		.where(eq(promisesTable.status, "open"))
+		.orderBy(desc(promisesTable.createdAt))
+		.limit(CONFIG.board.promiseLimit);
+
+	return rows.map((row) => {
+		const ours = row.direction === "ours";
+
+		return {
+			type: "promise" as const,
+			id: row.id,
+			title: row.title,
+			detail: [
+				ours ? "我方欠" : "对方许",
+				row.dueHint,
+				row.detail,
+			]
+				.filter(Boolean)
+				.join(" · "),
+			badge: null,
+			to: `/contacts/${row.contactId}`,
+			inferred: ours ? ("important" as const) : ("neither" as const),
+			weight: 0,
+		};
+	});
+}
+
 function applyPins(items: RawBoardItem[], pins: Map<string, BoardQuadrant>): BoardItem[] {
 	return items.map((item) => {
 		const pinned = pins.get(pinKey(item.type, item.id));
@@ -163,14 +197,15 @@ function applyPins(items: RawBoardItem[], pins: Map<string, BoardQuadrant>): Boa
 }
 
 export async function board(now = nowMs()): Promise<Board> {
-	const [tasks, dealRows, contactRows, pins] = await Promise.all([
+	const [tasks, dealRows, contactRows, promiseRows, pins] = await Promise.all([
 		taskItems(now),
 		dealItems(now),
 		contactItems(),
+		promiseItems(),
 		pinnedQuadrants(),
 	]);
 
-	const items = applyPins([...tasks, ...dealRows, ...contactRows], pins);
+	const items = applyPins([...tasks, ...dealRows, ...contactRows, ...promiseRows], pins);
 
 	const columns: BoardColumn[] = BOARD_QUADRANTS.map((quadrant) => ({
 		quadrant,

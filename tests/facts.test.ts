@@ -300,6 +300,87 @@ describe("同值去重与撤销", () => {
 		expect(row.postalCode).toBe("31170");
 	});
 
+	test("证据时间戳（原话锚点）原样入库", async () => {
+		const contact = await contactFixture();
+
+		await recordFact({
+			contactId: contact.id,
+			field: "address",
+			value: "51 Turnbury Park Drive",
+			evidence: [
+				{
+					kind: "wechat.chat",
+					quote: "51 Turnbury Park Drive, Jandakot",
+					ref: "Michael@chat.txt",
+					time: "2026-09-25 21:25",
+				},
+			],
+			source: "agent",
+		});
+
+		const [row] = await db().select().from(contactFacts).where(eq(contactFacts.contactId, contact.id));
+		expect(row.evidence).toEqual([
+			{
+				kind: "wechat.chat",
+				quote: "51 Turnbury Park Drive, Jandakot",
+				ref: "Michael@chat.txt",
+				time: "2026-09-25 21:25",
+			},
+		]);
+	});
+
+	test("认知刷新：智能体修正自己写的旧值，直接覆盖且原因标明「修正」", async () => {
+		const contact = await contactFixture();
+
+		const first = await recordFact({
+			contactId: contact.id,
+			field: "address",
+			value: "旧地址（误报）",
+			evidence: [evidence()],
+			source: "agent",
+		});
+		expect(first.applied).toBe(true);
+
+		const second = await recordFact({
+			contactId: contact.id,
+			field: "address",
+			value: "51 Turnbury Park Drive, Jandakot",
+			evidence: [evidence()],
+			source: "agent",
+		});
+
+		expect(second.applied).toBe(true);
+		expect(second.reason).toContain("修正旧值「旧地址（误报）」");
+
+		const [row] = await db().select().from(contacts).where(eq(contacts.id, contact.id));
+		expect(row.address).toBe("51 Turnbury Park Drive, Jandakot");
+
+		const facts = await db().select().from(contactFacts).where(eq(contactFacts.contactId, contact.id));
+		const statuses = facts.map((fact) => `${fact.value}:${fact.status}`).sort();
+		expect(statuses).toEqual([
+			"51 Turnbury Park Drive, Jandakot:applied",
+			"旧地址（误报）:superseded",
+		]);
+	});
+
+	test("人工值不被智能体修正覆盖，仍然只生成建议", async () => {
+		const contact = await contactFixture({ address: "人工地址" });
+
+		const result = await recordFact({
+			contactId: contact.id,
+			field: "address",
+			value: "智能体地址",
+			evidence: [evidence()],
+			source: "agent",
+		});
+
+		expect(result.applied).toBe(false);
+		expect(result.status).toBe("proposed");
+
+		const [row] = await db().select().from(contacts).where(eq(contacts.id, contact.id));
+		expect(row.address).toBe("人工地址");
+	});
+
 	test("撤销已写入的值：无独立列的字段值随之从档案消失", async () => {
 		const contact = await contactFixture();
 

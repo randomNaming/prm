@@ -238,7 +238,7 @@ describe.skipIf(!built)("地址与公司字段建议（B + C）", () => {
 			companyId,
 			field: "industry",
 			value: "智能健康手表",
-			evidence: [{ kind: "crm.note", quote: "【行业】智能健康手表", ref: companyId }],
+			evidence: [{ kind: "crm.note", quote: "【行业】智能健康手表", ref: companyId, time: null }],
 			source: "agent",
 		});
 		expect(proposed.status).toBe("proposed");
@@ -277,7 +277,7 @@ describe.skipIf(!built)("地址与公司字段建议（B + C）", () => {
 			companyId,
 			field: "description",
 			value: "源头厂家生产销售智能手表",
-			evidence: [{ kind: "crm.note", quote: "【主营介绍】源头厂家生产销售智能手表", ref: companyId }],
+			evidence: [{ kind: "crm.note", quote: "【主营介绍】源头厂家生产销售智能手表", ref: companyId, time: null }],
 			source: "agent",
 		});
 
@@ -295,7 +295,7 @@ describe.skipIf(!built)("地址与公司字段建议（B + C）", () => {
 			companyId,
 			field: "description",
 			value: "源头厂家生产销售智能手表",
-			evidence: [{ kind: "crm.note", quote: "【主营介绍】源头厂家生产销售智能手表", ref: companyId }],
+			evidence: [{ kind: "crm.note", quote: "【主营介绍】源头厂家生产销售智能手表", ref: companyId, time: null }],
 			source: "agent",
 		});
 
@@ -311,7 +311,7 @@ describe.skipIf(!built)("地址与公司字段建议（B + C）", () => {
 			label: "客户等级",
 			sampleValue: "A 类",
 			sampleRef: contactId,
-			evidence: [{ kind: "crm.note", quote: "客户等级：A 类", ref: contactId }],
+			evidence: [{ kind: "crm.note", quote: "客户等级：A 类", ref: contactId, time: null }],
 		});
 		expect(proposed.outcome).toBe("proposed");
 
@@ -342,7 +342,7 @@ describe.skipIf(!built)("地址与公司字段建议（B + C）", () => {
 			label: "联系电话",
 			sampleValue: "13800000000",
 			sampleRef: null,
-			evidence: [{ kind: "crm.note", quote: "联系电话：13800000000", ref: null }],
+			evidence: [{ kind: "crm.note", quote: "联系电话：13800000000", ref: null, time: null }],
 		});
 
 		expect(result.outcome).toBe("exists");

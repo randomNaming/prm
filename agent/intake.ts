@@ -1,8 +1,8 @@
 import { appendMessage, attachConversation, createConversation, conversationMessages } from "../server/utils/chat";
 import { createActivity } from "../server/utils/activities";
-import { getContact } from "../server/utils/contacts";
+import { findContactByName, getContact } from "../server/utils/contacts";
 import { CONFIG } from "../server/utils/config";
-import { digestIntakeText, intakeTitle } from "../server/utils/intake-archive";
+import { archiveOriginals, diffArchiveMessages, digestIntakeText, intakeTitle } from "../server/utils/intake-archive";
 import type { ChatToolCall } from "../app/types/domain";
 import { generateText, stepCountIs, type ModelMessage } from "ai";
 import { AgentDisabledError, agentModel } from "./model";
@@ -43,25 +43,39 @@ export type IntakeResult = {
 /**
  * 这一轮导入最终归到谁名下。
  *
- * ensure_contact 无论新建还是命中既有记录都会回 id，两种都算数 ——
- * 二次导入同一个人时命中的是既有记录，此时更要把留底挂上去。
- * 优先取新建的那条，避免一次导入里认了多个人时挂错。
+ * 优先级：ensure_contact 新建 → ensure_contact 命中 → 其他成功写入了该联系人的工具
+ * （record_fact / record_insight / record_promise / create_activity）。
+ * 兜底第三级是必须的：agent 有时会用 search_crm 找到既有联系人直接 record_fact，
+ * 全程不调 ensure_contact —— 这种轮次不该让留底落空挂不上人。
  */
 export function pickContactId(toolCalls: IntakeToolCall[]): string | null {
 	const created: string[] = [];
 	const matched: string[] = [];
+	const written: string[] = [];
 
 	for (const call of toolCalls) {
-		if (call.name !== "ensure_contact") continue;
-
+		const input = call.input as { contact_id?: string } | null;
 		const payload = call.result as Record<string, unknown> | null;
-		const id = payload && typeof payload.id === "string" ? payload.id : null;
-		if (!id) continue;
 
-		(payload?.created === true ? created : matched).push(id);
+		if (call.name === "ensure_contact") {
+			const id = payload && typeof payload.id === "string" ? payload.id : null;
+			if (!id) continue;
+
+			(payload?.created === true ? created : matched).push(id);
+
+			continue;
+		}
+
+		const succeeded =
+			payload !== null &&
+			typeof payload === "object" &&
+			(payload.stored === true || payload.created === true || Boolean(payload.activity));
+		const contactId = input && typeof input.contact_id === "string" ? input.contact_id : null;
+
+		if (succeeded && contactId) written.push(contactId);
 	}
 
-	return created[0] ?? matched[0] ?? null;
+	return created[0] ?? matched[0] ?? written[0] ?? null;
 }
 
 function describeError(error: unknown): string {
@@ -74,20 +88,39 @@ function describeError(error: unknown): string {
 /**
  * 把一段微信聊天记录组装成 Agent 可读的文本。
  * 头部携带昵称与来源文件名——这两项正是 evidence.ref 需要的。
+ * bodyText 默认为完整原文；增量导入时传入「仅新增消息」的正文，
+ * 并在尾部注明历史已入库多少条，让模型不要重提旧事。
  */
-export function buildIntakeMessage(input: IntakeInput): string {
+export function buildIntakeMessage(
+	input: IntakeInput,
+	bodyText: string = input.text,
+	incrementalNote?: string,
+): string {
 	const file = input.file?.trim() || "（未提供文件名）";
 	const header = `【微信聊天记录】对方昵称：${input.person}；来源文件：${file}`;
+	const note = incrementalNote ? `\n（${incrementalNote}）` : "";
 	const trailer = `以上为该会话的全部聊天原文，未做任何加工。请按规则抽取联系人与公司信息并写入 CRM。`;
 
-	return [header, "---", input.text.trim(), "---", trailer].join("\n");
+	return [header, "---", bodyText.trim(), "---", trailer + note].join("\n");
 }
 
 /**
  * 非流式跑一轮微信导入。MCP Server 只转发文本，加工全部发生在这里。
+ *
+ * 客户端约定是「全量转发」：每次同步都带整个会话。增量指纹去重在进模型之前完成——
+ * 已入库的消息被减掉，只有新增的几条喂给模型；一条新增都没有时不调模型、零成本返回。
  */
 export async function runIntake(input: IntakeInput): Promise<IntakeResult> {
-	const message = buildIntakeMessage(input);
+	// 增量比对：按昵称定位既有联系人，拿最近几次留底的原文建指纹索引。
+	// 找不到人 = 首次导入，整段都是新增。
+	const knownContact = await findContactByName(input.person);
+	const storedOriginals = knownContact ? await archiveOriginals(knownContact.id, 3) : [];
+	const diff = diffArchiveMessages(input.text, storedOriginals);
+
+	const incrementalNote = diff.isIncremental
+		? `增量导入：该会话已入库 ${diff.storedCount} 条历史消息（不重述）；本次新增 ${diff.newCount} 条，请只基于新增内容做增量分析。`
+		: undefined;
+	const message = buildIntakeMessage(input, diff.isIncremental ? diff.newBody : input.text, incrementalNote);
 
 	const conversation = await createConversation({
 		contactId: null,
@@ -101,6 +134,32 @@ export async function runIntake(input: IntakeInput): Promise<IntakeResult> {
 		role: "user",
 		content: message,
 	});
+
+	// 零新增：不调模型，直接收尾。照样写留底（覆盖区间照旧），但不写时间线活动。
+	if (diff.isIncremental && diff.newCount === 0) {
+		const digest = digestIntakeText(input.text);
+		const contact = knownContact;
+
+		await attachConversation({
+			conversationId: conversation.id,
+			contactId: contact?.id ?? null,
+			companyId: contact?.companyId ?? null,
+			title: intakeTitle(input.person, digest),
+		});
+
+		const summary = `本段无新增：${diff.incomingCount} 条消息全部已入库（留底 ${diff.storedCount} 条），未调用模型。`;
+
+		return {
+			conversationId: conversation.id,
+			messageId: "",
+			contactId: contact?.id ?? null,
+			summary,
+			toolCalls: [],
+			counts: {},
+			created: { contacts: [], companies: [] },
+			tokens: null,
+		};
+	}
 
 	const stored = await conversationMessages(conversation.id, CONFIG.agent.historyMessages);
 	const history: ModelMessage[] = stored
@@ -117,6 +176,7 @@ export async function runIntake(input: IntakeInput): Promise<IntakeResult> {
 		tools: crmTools(),
 		stopWhen: stepCountIs(CONFIG.agent.maxSteps),
 		maxOutputTokens: CONFIG.agent.maxOutputTokens,
+		abortSignal: AbortSignal.timeout(CONFIG.agent.requestTimeoutMs),
 		maxRetries: CONFIG.agent.maxRetries,
 	});
 

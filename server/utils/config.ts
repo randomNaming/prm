@@ -15,14 +15,22 @@ export const CONFIG = {
 		batchPerTick: 1,
 		rateWindowMs: 1 * MINUTE_MS,
 		rateWindowLimit: 3,
+		// 一轮 tick 超过这么久还没结束（模型请求被吊住等极端情况），
+		// 看门狗强制解锁队列，让后续 tick 恢复认领 —— 宁可任务重试，不许队列死锁。
+		stuckTickMs: 30 * MINUTE_MS,
 		researchKind: "research_contact",
 		companyResearchKind: "research_company",
 		recheckKind: "recheck",
 	},
 
 	agent: {
-		maxSteps: 8,
-		maxOutputTokens: 8000,
+		maxSteps: 12,
+		// 三层冰山提取一轮要吐大量工具调用参数（事实 + 说明书 JSON + 承诺账本 + 任务），
+		// GLM 的思考（reasoning）也计入输出预算：8000 的时代大批次会以 finishReason=length 中途夭折。
+		// 已实测智谱端点接受 32000。
+		maxOutputTokens: 32000,
+		// 单次模型请求的硬超时：远端吊住请求时不能让一次研究把整个队列挂死。
+		requestTimeoutMs: 5 * 60_000,
 		historyMessages: 40,
 		maxRetries: 2,
 	},
@@ -50,6 +58,8 @@ export const CONFIG = {
 		taskLimit: 100,
 		dealLimit: 100,
 		contactLimit: 100,
+		/** 开放承诺进看板的条数上限。 */
+		promiseLimit: 30,
 	},
 
 	text: {

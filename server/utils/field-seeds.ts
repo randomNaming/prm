@@ -139,6 +139,17 @@ export const BUILTIN_FIELD_SEEDS: BuiltinFieldSeed[] = [
 		agentWritable: true,
 	},
 	{
+		id: "fd_contact_customer_grade",
+		scope: "contact",
+		key: "customer_grade",
+		label: "客户等级",
+		aliases: ["客户分级", "客户级别", "等级", "客户价值", "grade", "tier"],
+		// 枚举可增词：使用者直接敲一个新等级也会进选项表。
+		options: ["A 类潜力买家", "B 类稳定客户", "C 类一般客户"],
+		dataType: "enum",
+		agentWritable: true,
+	},
+	{
 		id: "fd_contact_business_role",
 		scope: "contact",
 		key: "business_role",

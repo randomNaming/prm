@@ -120,14 +120,16 @@ describe("FR-5 失败重试上限", () => {
 		expect(row.finishedAt).not.toBeNull();
 	});
 
-	test("排队状态统计区分 pending / running / failed", async () => {
+	test("排队状态统计区分 pending / running / failed，未来排期不算进行中", async () => {
 		await insertTask({});
 		await insertTask({ status: "running", leaseUntil: now() + 1000 });
 		await insertTask({ status: "failed" });
+		// 未来的复查预约：已排期但没到期，不该被算成「进行中」。
+		await insertTask({ runAt: now() + 5 * 24 * 60 * 60 * 1000 });
 
 		const status = await queueStatus();
 
-		expect(status).toEqual({ pending: 1, running: 1, failed: 1 });
+		expect(status).toEqual({ pending: 1, running: 1, failed: 1, scheduled: 1 });
 	});
 });
 

@@ -116,6 +116,12 @@ export function useApi() {
 				body: { contactId },
 			}),
 
+		decidePromise: (id: string, action: "fulfilled" | "cancelled", note?: string) =>
+			$fetch<{ ok: boolean; reason: string }>("/api/promise-decision", {
+				method: "POST",
+				body: { id, action, note },
+			}),
+
 		conversations: (query: { contactId?: string; companyId?: string; dealId?: string } = {}) =>
 			$fetch<{ conversations: Conversation[] }>("/api/conversations", { query }),
 		messages: (conversationId: string) =>
@@ -133,6 +139,11 @@ export function useApi() {
 
 		research: (subject: "contact" | "company", id: string) =>
 			$fetch<{ queued: boolean; taskId: string }>("/api/research", {
+				method: "POST",
+				body: { subject, id },
+			}),
+		cancelResearch: (subject: "contact" | "company", id: string) =>
+			$fetch<{ ok: boolean; cancelled: number; reason: string }>("/api/research-cancel", {
 				method: "POST",
 				body: { subject, id },
 			}),

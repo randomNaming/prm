@@ -179,6 +179,7 @@ describe("联系人地址字段", () => {
 			address: null,
 			country: null,
 			postalCode: null,
+			customerGrade: null,
 			businessRole: null,
 			relationshipState: null,
 			repairNote: null,

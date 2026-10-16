@@ -54,7 +54,7 @@ const proposed = computed(() =>
 				</div>
 			</div>
 			<div v-for="(item, index) in field.evidence ?? []" :key="index" class="crm-quote">
-				{{ item.kind }}<span v-if="item.ref">（{{ item.ref }}）</span>：{{ item.quote }}
+				{{ item.kind }}<span v-if="item.ref">（{{ item.ref }}）</span><span v-if="item.time">（{{ item.time }}）</span>：{{ item.quote }}
 			</div>
 		</div>
 	</div>

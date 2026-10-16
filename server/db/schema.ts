@@ -47,6 +47,8 @@ export const contacts = mysqlTable(
 		country: varchar("country", { length: 64 }),
 		/** 邮编：固定字段。 */
 		postalCode: varchar("postal_code", { length: 32 }),
+		/** 客户等级：商务价值分级（A 类潜力买家等），智能体可建议、人工可改。 */
+		customerGrade: varchar("customer_grade", { length: 32 }),
 		businessRole: varchar("business_role", { length: 32 }),
 		/** 关系维护：留空 = 默认（长期养着的池子）。 */
 		relationshipState: varchar("relationship_state", { length: 32 }),
@@ -143,6 +145,67 @@ export const contactFacts = mysqlTable(
 			foreignColumns: [contacts.id],
 		}).onDelete("cascade"),
 		index("facts_contact_field").on(table.contactId, table.field, table.status),
+	],
+);
+
+/**
+ * 关系洞察：三层冰山的第二、三层。
+ *
+ * kind=playbook 是《相处使用说明书》（痛点 / 爽点 / 雷区 + 对象类型），
+ * kind=dual_track 是双轨温度计（事务健康度与个人信任分开评）。
+ * 每次导入整段刷新：同 kind 旧行置 superseded，历史保留可回溯。
+ */
+export const relationshipInsights = mysqlTable(
+	"relationship_insights",
+	{
+		id: varchar("id", { length: 36 }).primaryKey(),
+		contactId: varchar("contact_id", { length: 36 }).notNull(),
+		kind: varchar("kind", { length: 16 }).notNull(),
+		payload: json("payload").notNull(),
+		evidence: json("evidence").notNull(),
+		source: varchar("source", { length: 16 }).notNull().default("agent"),
+		status: varchar("status", { length: 16 }).notNull().default("applied"),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		foreignKey({
+			name: "fk_insights_contact",
+			columns: [table.contactId],
+			foreignColumns: [contacts.id],
+		}).onDelete("cascade"),
+		index("insights_contact_kind").on(table.contactId, table.kind, table.status),
+	],
+);
+
+/**
+ * 双向承诺与期权账本。
+ *
+ * direction=ours 是我方欠对方的待兑现债务，direction=theirs 是对方许我方的待收割筹码。
+ * due_hint 是文本提示（如「样品签收后3天」）：条件触发的承诺没有可靠时点，不造日期。
+ */
+export const promises = mysqlTable(
+	"promises",
+	{
+		id: varchar("id", { length: 36 }).primaryKey(),
+		contactId: varchar("contact_id", { length: 36 }).notNull(),
+		direction: varchar("direction", { length: 8 }).notNull(),
+		title: varchar("title", { length: 191 }).notNull(),
+		detail: varchar("detail", { length: 191 }),
+		dueHint: varchar("due_hint", { length: 64 }),
+		status: varchar("status", { length: 16 }).notNull().default("open"),
+		evidence: json("evidence").notNull(),
+		source: varchar("source", { length: 16 }).notNull().default("agent"),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		closedAt: bigint("closed_at", { mode: "number" }),
+		closedNote: varchar("closed_note", { length: 191 }),
+	},
+	(table) => [
+		foreignKey({
+			name: "fk_promises_contact",
+			columns: [table.contactId],
+			foreignColumns: [contacts.id],
+		}).onDelete("cascade"),
+		index("promises_contact_status").on(table.contactId, table.status, table.direction),
 	],
 );
 

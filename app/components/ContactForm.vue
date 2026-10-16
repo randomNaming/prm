@@ -18,6 +18,7 @@ const api = useApi();
 const companies = ref<Company[]>([]);
 const relationOptions = ref<string[]>([]);
 const relationshipOptions = ref<string[]>([]);
+const gradeOptions = ref<string[]>([]);
 const countryNames = ref<string[]>(COUNTRIES.map((country) => country.zh));
 
 const form = reactive({
@@ -30,6 +31,7 @@ const form = reactive({
 	address: "",
 	country: "",
 	postalCode: "",
+	customerGrade: "",
 	businessRole: "",
 	relationshipState: "",
 	repairNote: "",
@@ -95,6 +97,7 @@ watch(
 		form.address = contact?.address ?? "";
 		form.country = contact?.country ?? "";
 		form.postalCode = contact?.postalCode ?? "";
+		form.customerGrade = contact?.customerGrade ?? "";
 		form.businessRole = contact?.businessRole ?? "";
 		form.relationshipState = contact?.relationshipState ?? "";
 		form.repairNote = contact?.repairNote ?? "";
@@ -117,10 +120,13 @@ onMounted(async () => {
 			fieldResult.fields.find((field) => field.key === "business_role")?.options ?? [];
 		relationshipOptions.value =
 			fieldResult.fields.find((field) => field.key === "relationship_state")?.options ?? [];
+		gradeOptions.value =
+			fieldResult.fields.find((field) => field.key === "customer_grade")?.options ?? [];
 	} catch {
 		companies.value = [];
 		relationOptions.value = [];
 		relationshipOptions.value = [];
+		gradeOptions.value = [];
 	}
 });
 
@@ -190,6 +196,19 @@ function submit() {
 		</el-form-item>
 		<el-form-item label="邮编">
 			<el-input v-model="form.postalCode" maxlength="32" />
+		</el-form-item>
+		<el-form-item label="客户等级">
+			<el-select
+				v-model="form.customerGrade"
+				clearable
+				filterable
+				allow-create
+				default-first-option
+				placeholder="A 类潜力买家 / B 类稳定客户 / C 类一般客户，也可直接输入新等级"
+				style="width: 100%"
+			>
+				<el-option v-for="option in gradeOptions" :key="option" :label="option" :value="option" />
+			</el-select>
 		</el-form-item>
 		<el-form-item label="国家">
 			<el-select

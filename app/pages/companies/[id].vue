@@ -62,6 +62,20 @@ async function research() {
 	}
 }
 
+/** 卡死的后台研究允许人工终止；正在跑的那一次会被请求级超时兜住很快退出。 */
+const cancelBusy = ref(false);
+
+async function cancelResearch() {
+	cancelBusy.value = true;
+
+	try {
+		await api.cancelResearch("company", id.value);
+		await refresh();
+	} finally {
+		cancelBusy.value = false;
+	}
+}
+
 async function editCompany(payload: Record<string, unknown>) {
 	submitting.value = true;
 	errorText.value = "";
@@ -116,9 +130,19 @@ async function archive() {
 				<div>
 					<h1 class="crm-title">
 						{{ data.company.name }}
-						<el-tag v-if="data.researching" type="warning" effect="light" size="small">
-							正在研究
-						</el-tag>
+						<el-popconfirm
+							v-if="data.researching"
+							title="终止这项后台研究？"
+							confirm-button-text="终止"
+							cancel-button-text="再等等"
+							@confirm="cancelResearch"
+						>
+							<template #reference>
+								<el-tooltip content="研究超过几分钟没结束多半是卡住了，点这里终止；之后可再点「重新研究」重跑。" placement="top">
+									<el-link type="warning" :underline="false">正在研究，点此终止</el-link>
+								</el-tooltip>
+							</template>
+						</el-popconfirm>
 					</h1>
 					<div class="crm-muted">
 						{{ data.company.industry ?? "行业未知" }}

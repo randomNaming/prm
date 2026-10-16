@@ -84,9 +84,15 @@ export function decideFact(input: {
 	if (proposed) return { kind: "refused", reason: `${label}：这个值已在待确认列表里。` };
 
 	if (!currentValue || !currentIsHuman) {
+		// 覆盖智能体自己写的旧值时，明确说这是认知刷新（修正），不是含糊的「直接写入」。
+		const corrected =
+			appliedFact && currentValue
+				? `修正旧值「${appliedFact.value}」为「${value}」`
+				: "字段为空，已直接写入";
+
 		return {
 			kind: "applied",
-			reason: `${label}：字段为空，已直接写入。证据：${describeEvidence(evidence)}`,
+			reason: `${label}：${corrected}。证据：${describeEvidence(evidence)}`,
 		};
 	}
 

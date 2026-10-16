@@ -15,6 +15,7 @@ const startedAt: number[] = [];
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let tickStartedAt = 0;
 
 export type TickResult = {
 	recovered: number;
@@ -42,6 +43,7 @@ export async function runQueueTick(): Promise<TickResult> {
 	}
 
 	running = true;
+	tickStartedAt = Date.now();
 
 	try {
 		result.recovered = await recoverExpiredLeases();
@@ -142,6 +144,16 @@ export function startQueueWorker(): void {
 	if (timer) return;
 
 	timer = setInterval(() => {
+		// 看门狗：模型请求被远端吊住时，一轮 tick 可能永远不结束，
+		// running 标志会把后续所有 tick 全部挡在门外（队列假死）。
+		// 超过 stuckTickMs 就强制解锁，让队列恢复认领；原任务靠租约过期回收重试。
+		if (running && tickStartedAt > 0 && Date.now() - tickStartedAt > CONFIG.queue.stuckTickMs) {
+			running = false;
+			console.warn(
+				`[crm] 一轮队列 tick 卡了超过 ${Math.round(CONFIG.queue.stuckTickMs / 60000)} 分钟，已强制解锁队列继续认领。`,
+			);
+		}
+
 		void runQueueTick().catch(() => undefined);
 	}, CONFIG.queue.tickMs);
 

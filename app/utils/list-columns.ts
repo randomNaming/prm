@@ -37,6 +37,7 @@ export const CONTACT_BUILTIN_FIELD_KEYS = [
 	"address",
 	"country",
 	"postal_code",
+	"customer_grade",
 	"business_role",
 	"relationship_state",
 	"repair_note",
@@ -150,6 +151,14 @@ export const CONTACT_COLUMNS: ListColumn<ContactListItem>[] = [
 		defaultVisible: false,
 		kind: "text",
 		value: (row) => row.postalCode ?? "",
+	},
+	{
+		key: "customerGrade",
+		label: "客户等级",
+		minWidth: 130,
+		defaultVisible: false,
+		kind: "tag",
+		value: (row) => row.customerGrade ?? "",
 	},
 	{
 		key: "linkedin",

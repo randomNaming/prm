@@ -6,8 +6,9 @@ import { createActivity } from "../server/utils/activities";
 import { board, pinItem } from "../server/utils/board";
 import { CONFIG } from "../server/utils/config";
 import { createDeal } from "../server/utils/deals";
+import { closePromise, recordPromise } from "../server/utils/promises";
 import { closeDb, db } from "../server/utils/db";
-import { contactFixture, resetDatabase } from "./helpers";
+import { contactFixture, evidence, resetDatabase } from "./helpers";
 
 const DAY = CONFIG.time.dayMs;
 
@@ -223,5 +224,70 @@ describe("四象限：拖拽覆盖", () => {
 		// ……但你手工摆的位置仍然说话算数。
 		expect(item?.inferred).toBe("urgent_important");
 		expect(item?.quadrant).toBe("neither");
+	});
+});
+
+describe("承诺账本进看板", () => {
+	test("我方欠的进「重要不紧急」，对方许的进「不重要不紧急」", async () => {
+		const contact = await contactFixture();
+		await recordPromise({
+			contactId: contact.id,
+			direction: "ours",
+			title: "下一单给 8% 折扣补偿",
+			dueHint: "下一单",
+			evidence: [evidence()],
+		});
+		await recordPromise({
+			contactId: contact.id,
+			direction: "theirs",
+			title: "签收核验后给好评",
+			evidence: [evidence()],
+		});
+
+		const result = await board();
+
+		const ours = result.columns
+			.find((column) => column.quadrant === "important")
+			?.items.find((item) => item.type === "promise");
+		expect(ours?.title).toBe("下一单给 8% 折扣补偿");
+		expect(ours?.detail).toContain("我方欠");
+
+		const theirs = result.columns
+			.find((column) => column.quadrant === "neither")
+			?.items.find((item) => item.type === "promise");
+		expect(theirs?.title).toBe("签收核验后给好评");
+		expect(theirs?.detail).toContain("对方许");
+	});
+
+	test("承诺闭环后从看板消失", async () => {
+		const contact = await contactFixture();
+		const created = await recordPromise({
+			contactId: contact.id,
+			direction: "ours",
+			title: "明早9点催物流",
+			evidence: [evidence()],
+		});
+
+		expect((await board()).columns.some((column) => column.items.some((item) => item.type === "promise"))).toBe(true);
+
+		await closePromise({ promiseId: created.promiseId ?? "", action: "fulfilled" });
+
+		expect((await board()).columns.some((column) => column.items.some((item) => item.type === "promise"))).toBe(false);
+	});
+
+	test("已取消的承诺同样不上看板", async () => {
+		const contact = await contactFixture();
+		const created = await recordPromise({
+			contactId: contact.id,
+			direction: "theirs",
+			title: "复购 100 件",
+			evidence: [evidence()],
+		});
+
+		await closePromise({ promiseId: created.promiseId ?? "", action: "cancelled" });
+
+		const result = await board();
+		const promiseItems = result.columns.flatMap((column) => column.items).filter((item) => item.type === "promise");
+		expect(promiseItems).toHaveLength(0);
 	});
 });

@@ -6,7 +6,7 @@ type SuggestionFact = {
 	field: string;
 	value: string;
 	status: string;
-	evidence: { kind: string; quote: string; ref: string | null }[];
+	evidence: { kind: string; quote: string; ref: string | null; time: string | null }[];
 	source: string;
 };
 
@@ -57,7 +57,7 @@ function statusLabel(status: string): string {
 			</div>
 			<div class="crm-muted crm-suggestion__source">来源：{{ fact.source }}</div>
 			<div v-for="(item, index) in fact.evidence" :key="index" class="crm-quote">
-				{{ item.kind }}<span v-if="item.ref">（{{ item.ref }}）</span>：{{ item.quote }}
+				{{ item.kind }}<span v-if="item.ref">（{{ item.ref }}）</span><span v-if="item.time">（{{ item.time }}）</span>：{{ item.quote }}
 			</div>
 		</div>
 
@@ -83,7 +83,7 @@ function statusLabel(status: string): string {
 						</div>
 					</div>
 					<div v-for="(item, index) in fact.evidence" :key="index" class="crm-quote">
-						{{ item.kind }}<span v-if="item.ref">（{{ item.ref }}）</span>：{{ item.quote }}
+						{{ item.kind }}<span v-if="item.ref">（{{ item.ref }}）</span><span v-if="item.time">（{{ item.time }}）</span>：{{ item.quote }}
 					</div>
 				</div>
 			</el-collapse-item>
