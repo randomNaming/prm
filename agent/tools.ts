@@ -34,13 +34,62 @@ const evidenceSchema = z.object({
 		.describe("原话在聊天里对应的时间戳，例如 2026-09-25 21:25。能取到就必须给"),
 });
 
+/**
+ * 深度洞察条目的输入形状：V2 主字段（title / attribution / confidence / evidence_quote /
+ * evidence_time）与旧字段（text / quote / time）都接受、全部可选——
+ * 真正的形状校验与归一化在 insights.ts 的写路径完成，这里只负责别把新字段剥掉。
+ */
 const insightItemInputSchema = z.array(
-	z.object({
-		text: z.string().trim().min(1),
-		quote: z.string().trim().min(1),
-		time: z.string().trim().max(32).nullish(),
-	}),
+	z
+		.object({
+			title: z.string().trim().min(1).max(60).optional().describe("12-18 字核心结论短标题"),
+			attribution: z.string().trim().max(500).optional().describe("表象背后的深层心理动机或商业归因（1-2 句）"),
+			confidence: z.number().int().min(0).max(100).optional().describe("0-100 置信度：反复强调的铁律 85-95，单次提及 50-75"),
+			evidence_quote: z.string().trim().min(1).max(1000).optional().describe("原话逐字摘录"),
+			evidence_time: z.string().trim().max(32).nullish().describe("原话时间戳，如 2026-09-25 21:25"),
+			text: z.string().trim().min(1).max(400).optional().describe("旧字段：洞察一句话（已被 title 取代）"),
+			quote: z.string().trim().min(1).max(1000).optional().describe("旧字段：原话摘录（已被 evidence_quote 取代）"),
+			time: z.string().trim().max(32).nullish(),
+		})
+		.passthrough(),
 );
+
+const spectrumSideInputSchema = z.object({
+	score: z.number().min(0).max(100),
+	note: z.string().trim().max(200).default(""),
+});
+
+const personalitySpectrumsInputSchema = z.object({
+	rigor_vs_flexibility: spectrumSideInputSchema,
+	transactional_vs_relational: spectrumSideInputSchema,
+	trust_mechanism: spectrumSideInputSchema,
+});
+
+const smallTalkPlaybookInputSchema = z
+	.object({
+		strategy_advice: z.string().trim().max(400).optional().describe("当前沟通配比建议"),
+		personal_hooks: z
+			.array(
+				z
+					.object({
+						category: z.string().trim().min(1).max(32),
+						detail: z.string().trim().min(1).max(400),
+						quote: z.string().trim().min(1).max(1000),
+						time: z.string().trim().max(32).nullish(),
+					})
+					.passthrough(),
+			)
+			.max(12)
+			.optional(),
+		ready_to_use_icebreaker: z
+			.object({
+				zh: z.string().trim().min(1).max(400),
+				en: z.string().trim().max(400).optional(),
+			})
+			.nullish()
+			.describe("可直接复制发送的走心家常破冰话术，中英双语对照"),
+	})
+	.passthrough();
 
 const dualTrackSideInputSchema = z.object({
 	level: z.string().trim().min(1),
@@ -482,13 +531,15 @@ export function crmTools() {
 
 		record_insight: tool({
 			description: [
-				"把《客户洞察》（kind=playbook）或《关系双轨温度计》（kind=dual_track）整段写入联系人。",
+				"把《客户洞察》（kind=playbook，即相处使用说明书）或《关系双轨温度计》（kind=dual_track）整段写入联系人。",
 				"每次调用是整段刷新：旧版自动退场保留历史，所以每次都给完整内容，不要只给增量。",
-				"playbook 的 payload：counterpart_type（customer/supplier/friend）+ 五个数组，",
-				"每项 {text: 洞察一句话, quote: 对方原话逐字摘录, time: 原话时间戳}：",
-				"· profile：身份与属性标签（如 B2B 采购商、样品测试买家、Tax Exempt、偏好直飞空运）；",
-				"· business_value：商务价值判断（首单状态、LTV 潜力、复购预期、风险提示）；",
-				"· pain_points / sweet_spots / taboos：痛点、爽点、雷区。没有的数组给空数组。",
+				"playbook 的 payload（V2 结构）：",
+				"· counterpart_type（customer/supplier/friend）；",
+				"· executive_summary：人物白描，60-100 字自然语言总括（区域身份、性格底色、历史心结、核心相处法则），一针见血，杜绝流水账；",
+				"· short_tags：纯短标签数组，每个 4-8 字、严禁超过 10 字（如「样品测试买家」「DDP包税条款」「西澳珀斯」「眼见为实型」）；",
+				"· personality_spectrums：三维性格光谱，每维 {score: 0-100, note: 一句定性}——rigor_vs_flexibility（0=灵活随性，100=极重规格与契约）、transactional_vs_relational（0=公事公办，100=重人情/懂体谅）、trust_mechanism（0=直觉信任，100=眼见为实/重证据）；",
+				"· small_talk_playbook：破冰与家常弹药库 {strategy_advice: 沟通配比建议, personal_hooks: [{category, detail, quote, time}], ready_to_use_icebreaker: {zh, en}}；",
+				"· business_value / pain_points / sweet_spots / taboos：深度洞察项，每项 {title: 12-18 字核心结论短标题, attribution: 深层心理动机或商业归因（1-2 句）, confidence: 0-100（反复强调的铁律 85-95，单次提及 50-75）, evidence_quote: 原话逐字摘录, evidence_time: 时间戳}。没有的数组给空数组。",
 				"dual_track 的 payload：transaction_health 与 personal_trust 两轨分开评，每轨 {level: 分级词, score: -100~100 或 null, note: 一句话依据, quote, time}。",
 				"每一条都必须有原话锚点：没有 quote 就不要写这条洞察，绝不编造。",
 			].join(""),
@@ -498,6 +549,10 @@ export function crmTools() {
 				payload: z
 					.object({
 						counterpart_type: z.enum(["customer", "supplier", "friend"]).optional(),
+						executive_summary: z.string().trim().min(1).max(300).optional(),
+						short_tags: z.array(z.string().trim().min(1).max(32)).max(12).optional(),
+						personality_spectrums: personalitySpectrumsInputSchema.optional(),
+						small_talk_playbook: smallTalkPlaybookInputSchema.optional(),
 						profile: insightItemInputSchema.optional(),
 						business_value: insightItemInputSchema.optional(),
 						pain_points: insightItemInputSchema.optional(),

@@ -36,7 +36,6 @@ export async function runCompanyResearch(
 		tools: crmTools(),
 		stopWhen: stepCountIs(CONFIG.agent.maxSteps),
 		maxOutputTokens: CONFIG.agent.maxOutputTokens,
-		abortSignal: AbortSignal.timeout(CONFIG.agent.requestTimeoutMs),
 		maxRetries: CONFIG.agent.maxRetries,
 	});
 
@@ -82,7 +81,6 @@ export async function runResearch(contactId: string, reason: string): Promise<Re
 		tools: crmTools(),
 		stopWhen: stepCountIs(CONFIG.agent.maxSteps),
 		maxOutputTokens: CONFIG.agent.maxOutputTokens,
-		abortSignal: AbortSignal.timeout(CONFIG.agent.requestTimeoutMs),
 		maxRetries: CONFIG.agent.maxRetries,
 	});
 

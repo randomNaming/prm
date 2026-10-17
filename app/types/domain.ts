@@ -102,22 +102,100 @@ export const PROMISE_STATUS_LABELS: Record<PromiseStatus, string> = {
 	cancelled: "已关闭",
 };
 
-/** 一条洞察里的单项：正文 + 原话锚点（防幻觉，悬停即回忆语境）。 */
+/**
+ * 一条深度洞察项（V2 结构）：短标题 + 深层归因 + 置信度 + 原话锚点（防幻觉，悬停即回忆语境）。
+ *
+ * 旧版条目只有 text/quote/time 三个键。读取路径（insights.ts 的 latestInsights）会把旧条目
+ * 归一化成这个形状——title 退回原 text 全句，attribution/confidence 补 null——
+ * 所以前端永远只会见到这一种格式，不用关心两种历史 payload。
+ */
 export type InsightItem = {
-	text: string;
+	/** 核心结论短标题（12-18 字，绝不截断）。旧数据退回原 text 全句。 */
+	title: string;
+	/** 表象行为背后的深层心理动机或商业归因（从行为反推心理）。旧数据为 null。 */
+	attribution: string | null;
+	/** 0-100 置信度：聊天中反复强调的铁律 85-95，单次提及 50-75。旧数据为 null。 */
+	confidence: number | null;
+	quote: string;
+	time: string | null;
+};
+
+/** 性格光谱的一个维度：0-100 分值（越高越靠 SPECTRUM_AXES 里定义的右端）+ 简短定性说明。 */
+export type SpectrumSide = {
+	score: number;
+	note: string;
+};
+
+/** 三维性格光谱，极性词与维度名见 SPECTRUM_AXES。 */
+export type PersonalitySpectrums = {
+	rigor_vs_flexibility: SpectrumSide;
+	transactional_vs_relational: SpectrumSide;
+	trust_mechanism: SpectrumSide;
+};
+
+export const SPECTRUM_AXES = [
+	{
+		key: "rigor_vs_flexibility",
+		label: "规格与严谨",
+		left: "灵活随性",
+		right: "极重规格与契约",
+	},
+	{
+		key: "transactional_vs_relational",
+		label: "公事与人情",
+		left: "公事公办",
+		right: "重人情/懂体谅",
+	},
+	{
+		key: "trust_mechanism",
+		label: "信任机制",
+		left: "直觉信任",
+		right: "眼见为实/重证据",
+	},
+] as const;
+
+export type SpectrumKey = (typeof SPECTRUM_AXES)[number]["key"];
+
+/** 一条家常弹药：可聊的私人细节或共同梗，带原话出处。 */
+export type PersonalHook = {
+	/** 弹药类别：个人装备/习惯、共同幽默梗、温情互动、地域生活体感…… */
+	category: string;
+	detail: string;
 	quote: string;
 	time: string | null;
 };
 
 /**
- * 《客户洞察》（原相处使用说明书）：画像标签 + 商务价值 + 痛点 / 爽点 / 雷区。
- * profile 与 business_value 是后扩的两组，旧版本 payload 可能缺省，前端按空数组兜底。
+ * 破冰与家常弹药库：帮使用者在 10 秒内打出高阶人情牌（聊家常不聊专业）。
+ */
+export type SmallTalkPlaybook = {
+	/** 当前沟通配比建议（结合双轨温度与所处阶段动态给出）。 */
+	strategy_advice: string;
+	personal_hooks: PersonalHook[];
+	/** 下次沟通（或签收后）可直接复制发送的走心家常破冰话术，中英双语对照。 */
+	ready_to_use_icebreaker: { zh: string; en: string } | null;
+};
+
+/**
+ * 《客户洞察》（原相处使用说明书）：人物白描 + 短标签 + 性格光谱 + 深度洞察项 + 家常弹药库。
+ *
+ * V2 在顶层追加了 executive_summary / short_tags / personality_spectrums / small_talk_playbook
+ * 四组字段——它们存在 JSON payload 里，旧数据没有时读取路径补 null / 空数组，
+ * 前端按「优雅降级」处理（对应区块不渲染），点「重新研究」即可补全。
  */
 export type PlaybookPayload = {
 	counterpart_type: "customer" | "supplier" | "friend";
-	/** 身份与属性标签：B2B 采购商、样品测试买家、Tax Exempt、偏好直飞空运…… */
+	/** 人物白描：60-100 字一针见血的总括（区域身份、性格底色、历史心结、相处法则）。旧数据为 null。 */
+	executive_summary: string | null;
+	/** 纯短标签（每个 4-8 字，不超过 10 字）。取代旧 profile 胶囊的展示职责。旧数据为空数组。 */
+	short_tags: string[];
+	/** 三维性格光谱。旧数据为 null。 */
+	personality_spectrums: PersonalitySpectrums | null;
+	/** 破冰与家常弹药库。旧数据为 null。 */
+	small_talk_playbook: SmallTalkPlaybook | null;
+	/** 旧版身份标签组：已由 short_tags 取代，仅为兼容旧数据保留展示。 */
 	profile: InsightItem[];
-	/** 商务价值判断：首单状态、LTV 潜力、复购预期、风险提示…… */
+	/** 深度洞察：商务价值判断（首单状态、LTV 潜力、复购预期、风险提示……）。 */
 	business_value: InsightItem[];
 	pain_points: InsightItem[];
 	sweet_spots: InsightItem[];

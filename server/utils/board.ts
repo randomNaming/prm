@@ -9,7 +9,14 @@ import {
 	type BoardItemType,
 	type BoardQuadrant,
 } from "../../app/types/domain";
-import { activities, boardPins, contacts, deals, promises as promisesTable } from "../db/schema";
+import {
+	activities,
+	boardPins,
+	contacts,
+	deals,
+	promises as promisesTable,
+	relationshipInsights,
+} from "../db/schema";
 import { CONFIG } from "./config";
 import { db } from "./db";
 import { nowMs } from "./ids";
@@ -19,9 +26,86 @@ import { nowMs } from "./ids";
  *
  * 象限自动推断，拖拽可以覆盖 —— 覆盖只存进 board_pins，不污染 activities / deals / contacts。
  * 推断规则刻意做得粗：它只是默认值，猜错了你拖一下就行。
+ *
+ * 例外是「客户正在出事」：事务健康度跌到负面时，该联系人的跟进任务与高频承诺
+ * 会被强制升进第一象限（见 contactsInPoorHealth 的注释），因为这时候再让
+ * 「每日盯物流」躺在第二象限，等于看着房子着火还在排下周的日程。
  */
 
 const DAY_MS = CONFIG.time.dayMs;
+
+/**
+ * 承诺语义的两把尺子（只对 direction=ours 且对方事务健康度负面时启用）：
+ * 高频/即时 → 强制升舱第一象限；远期下一单/下阶段 → 保留在第二象限。
+ */
+const URGENT_PROMISE_PATTERN = /每日|每天|立即|第一时间|盯|催|跟进|asap|daily|immediately/i;
+const FUTURE_PROMISE_PATTERN = /下一单|下次发货|批量返单|下回|next order|future/i;
+
+/** 升舱项的排序权重基数：压过任何逾期/停滞天数，让着火的客户排最前面。 */
+const ESCALATION_WEIGHT = 1000;
+
+/** 事务健康度负面判定：分级词命中（大小写不敏感），或分值低于 40（-100~100 标度）。 */
+const NEGATIVE_HEALTH_LEVEL_WORDS = [
+	"frustrated",
+	"at risk",
+	"delayed",
+	"delay",
+	"risk",
+	"angry",
+	"upset",
+	"bad",
+	"poor",
+	"恶化",
+	"延误",
+	"延迟",
+	"风险",
+	"告急",
+	"焦虑",
+	"不满",
+	"紧张",
+	"糟糕",
+];
+
+function isNegativeHealth(side: { level?: unknown; score?: unknown }): boolean {
+	if (typeof side.level === "string") {
+		const level = side.level.toLowerCase();
+		if (NEGATIVE_HEALTH_LEVEL_WORDS.some((word) => level.includes(word))) return true;
+	}
+
+	return typeof side.score === "number" && side.score < 40;
+}
+
+/**
+ * 事务健康度负面（着火中）的联系人清单：contactId → 分级词（badge 用）。
+ *
+ * 数据来自 relationship_insights 里 kind=dual_track 的最新 applied 行。
+ * 没写过双轨洞察的联系人不算负面——没有证据就不升舱，推断宁可保守。
+ */
+async function contactsInPoorHealth(): Promise<Map<string, string>> {
+	const rows = await db()
+		.select({
+			contactId: relationshipInsights.contactId,
+			payload: relationshipInsights.payload,
+		})
+		.from(relationshipInsights)
+		.where(and(eq(relationshipInsights.kind, "dual_track"), eq(relationshipInsights.status, "applied")))
+		.orderBy(desc(relationshipInsights.createdAt));
+
+	const byContact = new Map<string, string>();
+
+	for (const row of rows) {
+		// 按创建时间倒序，第一次见到某联系人就是它最新的一版。
+		if (byContact.has(row.contactId)) continue;
+
+		const side = (row.payload as { transaction_health?: { level?: unknown; score?: unknown } })
+			?.transaction_health;
+		if (!side || !isNegativeHealth(side)) continue;
+
+		byContact.set(row.contactId, typeof side.level === "string" && side.level ? side.level : "负面");
+	}
+
+	return byContact;
+}
 
 /**
  * 汇总出来的原始事项：只有推断值，没有生效值。
@@ -53,7 +137,7 @@ function pinKey(type: BoardItemType, id: string): string {
 	return `${type}:${id}`;
 }
 
-async function taskItems(now: number): Promise<RawBoardItem[]> {
+async function taskItems(now: number, poorHealth: Map<string, string>): Promise<RawBoardItem[]> {
 	const rows = await db()
 		.select({
 			id: activities.id,
@@ -72,21 +156,25 @@ async function taskItems(now: number): Promise<RawBoardItem[]> {
 
 	return rows.map((row) => {
 		const overdueDays = row.dueAt ? daysSince(row.dueAt, now) : 0;
+		// 客户着火时，他名下所有未完成的跟进任务强制升舱：延误中的客户等不起排期。
+		const healthLevel = row.contactId ? poorHealth.get(row.contactId) : undefined;
+		const badge = row.dueAt
+			? overdueDays > 0
+				? `逾期 ${overdueDays} 天`
+				: "未到期"
+			: "无截止日";
 
 		return {
 			type: "task" as const,
 			id: row.id,
 			title: row.title,
 			detail: row.contactFirst ? `${row.contactFirst}${row.contactLast ?? ""}` : null,
-			badge: row.dueAt
-				? overdueDays > 0
-					? `逾期 ${overdueDays} 天`
-					: "未到期"
-				: "无截止日",
+			badge: healthLevel ? `${badge} · 客户${healthLevel}` : badge,
 			to: row.contactId ? `/contacts/${row.contactId}` : "/",
-			// 逾期才是紧急；没有截止日的任务一律算不紧急，靠拖拽决定。
-			inferred: overdueDays > 0 ? ("urgent_important" as const) : ("important" as const),
-			weight: overdueDays,
+			// 逾期才是紧急；没有截止日的任务一律算不紧急，靠拖拽决定——
+			// 除非对方事务健康度已跌到负面，那时跟进本身就是救火。
+			inferred: healthLevel || overdueDays > 0 ? ("urgent_important" as const) : ("important" as const),
+			weight: healthLevel ? ESCALATION_WEIGHT + overdueDays : overdueDays,
 		};
 	});
 }
@@ -156,8 +244,12 @@ async function contactItems(): Promise<RawBoardItem[]> {
 /**
  * 承诺账本进看板：我方欠的进「重要不紧急」（要排期兑现），
  * 对方许的进「不重要不紧急」（待收割的期权，不急）。
+ *
+ * 例外（规则 A/B，仅我方欠的、且对方事务健康度负面时）：
+ * A. 高频/即时语义（每日盯物流、立即通知……）即使带触发条件也强制进「紧急且重要」；
+ * B. 明确的远期下一单/下阶段承诺（下一单折扣、批量返单……）保留在「重要不紧急」。
  */
-async function promiseItems(): Promise<RawBoardItem[]> {
+async function promiseItems(poorHealth: Map<string, string>): Promise<RawBoardItem[]> {
 	const rows = await db()
 		.select()
 		.from(promisesTable)
@@ -167,6 +259,11 @@ async function promiseItems(): Promise<RawBoardItem[]> {
 
 	return rows.map((row) => {
 		const ours = row.direction === "ours";
+		const healthLevel = poorHealth.get(row.contactId);
+		// 语义匹配放在标题 + 补充 + 触发条件的合并文本上，写法稍有出入也能命中。
+		const text = [row.title, row.detail, row.dueHint].filter(Boolean).join(" ");
+		const isFuture = FUTURE_PROMISE_PATTERN.test(text);
+		const escalate = Boolean(ours && healthLevel && !isFuture && URGENT_PROMISE_PATTERN.test(text));
 
 		return {
 			type: "promise" as const,
@@ -179,10 +276,14 @@ async function promiseItems(): Promise<RawBoardItem[]> {
 			]
 				.filter(Boolean)
 				.join(" · "),
-			badge: null,
+			badge: escalate && healthLevel ? `客户${healthLevel}` : null,
 			to: `/contacts/${row.contactId}`,
-			inferred: ours ? ("important" as const) : ("neither" as const),
-			weight: 0,
+			inferred: escalate
+				? ("urgent_important" as const)
+				: ours
+					? ("important" as const)
+					: ("neither" as const),
+			weight: escalate ? ESCALATION_WEIGHT : 0,
 		};
 	});
 }
@@ -197,11 +298,14 @@ function applyPins(items: RawBoardItem[], pins: Map<string, BoardQuadrant>): Boa
 }
 
 export async function board(now = nowMs()): Promise<Board> {
+	// 健康度清单要先行一步：任务与承诺的象限推断都拿它当输入。
+	const poorHealth = await contactsInPoorHealth();
+
 	const [tasks, dealRows, contactRows, promiseRows, pins] = await Promise.all([
-		taskItems(now),
+		taskItems(now, poorHealth),
 		dealItems(now),
 		contactItems(),
-		promiseItems(),
+		promiseItems(poorHealth),
 		pinnedQuadrants(),
 	]);
 

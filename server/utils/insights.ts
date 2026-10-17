@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import type { InsightKind, RelationshipInsight } from "../../app/types/domain";
+import type { InsightKind, PlaybookPayload, RelationshipInsight } from "../../app/types/domain";
 import { relationshipInsights } from "../db/schema";
 import { db } from "./db";
 import { newId, nowMs } from "./ids";
@@ -12,16 +12,83 @@ import type { Evidence } from "../../app/types/domain";
  *
  * payload 刻意只做宽松校验（验顶层 shape 与数组项的关键键），不逐字段锁死 ——
  * 这是 LLM 的输出，格式漂移时宁可原样落库让人看到，也不能让一轮导入整体失败。
+ *
+ * V2 的 playbook 条目从 {text, quote, time} 升级为 {title, attribution, confidence,
+ * evidence_quote, evidence_time}。写路径同时接受两种形状并归一成 V2 存储；
+ * 读路径（latestInsights）对历史行做同样的归一化，所以消费方只见 V2。
  */
 
-const insightItemSchema = z.object({
-	text: z.string().trim().min(1).max(400),
+const insightItemSchema = z
+	.object({
+		// V2 主字段：短标题 + 深层归因 + 置信度 + 证据。
+		title: z.string().trim().min(1).max(60).optional(),
+		attribution: z.string().trim().max(500).optional(),
+		confidence: z.number().int().min(0).max(100).nullish(),
+		evidence_quote: z.string().trim().min(1).max(1000).optional(),
+		evidence_time: z.string().trim().max(32).nullish(),
+		// 旧字段仍接受：模型偶尔照旧格式输出时，条目不至于整段拒收。
+		text: z.string().trim().min(1).max(400).optional(),
+		quote: z.string().trim().min(1).max(1000).optional(),
+		time: z.string().trim().max(32).nullish(),
+	})
+	.refine((value) => Boolean(value.title ?? value.text), "缺少 title 或 text")
+	.refine((value) => Boolean(value.evidence_quote ?? value.quote), "缺少原话证据")
+	.transform((value) => ({
+		title: (value.title ?? value.text ?? "").trim(),
+		attribution: value.attribution?.trim() || null,
+		confidence: value.confidence ?? null,
+		quote: (value.evidence_quote ?? value.quote ?? "").trim(),
+		time: value.evidence_time ?? value.time ?? null,
+	}));
+
+const spectrumSideSchema = z.object({
+	score: z.number().min(0).max(100),
+	note: z.string().trim().max(200).default(""),
+});
+
+const personalitySpectrumsSchema = z.object({
+	rigor_vs_flexibility: spectrumSideSchema,
+	transactional_vs_relational: spectrumSideSchema,
+	trust_mechanism: spectrumSideSchema,
+});
+
+const personalHookSchema = z.object({
+	category: z.string().trim().min(1).max(32),
+	detail: z.string().trim().min(1).max(400),
 	quote: z.string().trim().min(1).max(1000),
 	time: z.string().trim().max(32).nullish().transform((value) => value ?? null),
 });
 
+/** 模型偶尔会把双语破冰话术写成一段字符串，归一成 {zh, en} 存储。 */
+const icebreakerSchema = z
+	.union([
+		z.object({
+			zh: z.string().trim().min(1).max(400),
+			en: z.string().trim().max(400).default(""),
+		}),
+		z.string().trim().min(1).max(400),
+	])
+	.transform((value) => (typeof value === "string" ? { zh: value, en: "" } : value));
+
+const smallTalkPlaybookSchema = z.object({
+	strategy_advice: z.string().trim().max(400).default(""),
+	personal_hooks: z.array(personalHookSchema).max(12).default([]),
+	ready_to_use_icebreaker: icebreakerSchema.nullish().transform((value) => value ?? null),
+});
+
 const playbookSchema = z.object({
 	counterpart_type: z.enum(["customer", "supplier", "friend"]),
+	// 短标签约定 ≤10 字是提示词的硬约束；这里放宽到 32 只是防整段拒收，超长标签由提示词自律。
+	executive_summary: z
+		.string()
+		.trim()
+		.min(1)
+		.max(300)
+		.nullish()
+		.transform((value) => value || null),
+	short_tags: z.array(z.string().trim().min(1).max(32)).max(12).default([]),
+	personality_spectrums: personalitySpectrumsSchema.nullish().transform((value) => value ?? null),
+	small_talk_playbook: smallTalkPlaybookSchema.nullish().transform((value) => value ?? null),
 	profile: z.array(insightItemSchema).max(12).default([]),
 	business_value: z.array(insightItemSchema).max(8).default([]),
 	pain_points: z.array(insightItemSchema).max(10).default([]),
@@ -111,7 +178,117 @@ export async function recordInsight(input: {
 	};
 }
 
-/** 详情页用：每个 kind 只取最新一条 applied。 */
+// ===== 读取路径的旧数据归一化 =====
+//
+// V2 之前落库的 playbook 行没有顶层四组新字段，条目也还是 {text, quote, time}。
+// 归一化只做形状搬运、不做语义加工：title 退回 text，缺的补 null / 空数组。
+
+function asString(value: unknown): string {
+	return typeof value === "string" ? value.trim() : "";
+}
+
+function asScore(value: unknown): number | null {
+	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
+}
+
+function normalizeItems(value: unknown): PlaybookPayload["business_value"] {
+	if (!Array.isArray(value)) return [];
+
+	return value.flatMap((entry) => {
+		const item = (entry ?? {}) as Record<string, unknown>;
+		const title = asString(item.title ?? item.text);
+		const quote = asString(item.evidence_quote ?? item.quote);
+		if (!title || !quote) return [];
+
+		return [
+			{
+				title,
+				attribution: asString(item.attribution) || null,
+				confidence: typeof item.confidence === "number" ? Math.round(item.confidence) : null,
+				quote,
+				time: asString(item.evidence_time ?? item.time) || null,
+			},
+		];
+	});
+}
+
+function normalizeSpectrums(value: unknown): PlaybookPayload["personality_spectrums"] {
+	const source = (value ?? {}) as Record<string, unknown>;
+	const side = (entry: unknown) => {
+		const item = (entry ?? {}) as Record<string, unknown>;
+		const score = asScore(item.score);
+		if (score === null) return null;
+
+		return { score, note: asString(item.note) };
+	};
+	const rigor = side(source.rigor_vs_flexibility);
+	const relational = side(source.transactional_vs_relational);
+	const trust = side(source.trust_mechanism);
+	if (!rigor || !relational || !trust) return null;
+
+	return {
+		rigor_vs_flexibility: rigor,
+		transactional_vs_relational: relational,
+		trust_mechanism: trust,
+	};
+}
+
+function normalizeSmallTalk(value: unknown): PlaybookPayload["small_talk_playbook"] {
+	const source = (value ?? {}) as Record<string, unknown>;
+	if (typeof source !== "object" || source === null || Object.keys(source).length === 0) return null;
+
+	const hooks = Array.isArray(source.personal_hooks)
+		? source.personal_hooks.flatMap((entry) => {
+				const hook = (entry ?? {}) as Record<string, unknown>;
+				const category = asString(hook.category);
+				const detail = asString(hook.detail);
+				const quote = asString(hook.quote);
+				if (!category || !detail || !quote) return [];
+
+				return [{ category, detail, quote, time: asString(hook.time) || null }];
+			})
+		: [];
+
+	const raw = source.ready_to_use_icebreaker;
+	const ice =
+		typeof raw === "string"
+			? { zh: raw.trim(), en: "" }
+			: typeof raw === "object" && raw !== null
+				? {
+						zh: asString((raw as Record<string, unknown>).zh),
+						en: asString((raw as Record<string, unknown>).en),
+					}
+				: null;
+	const icebreaker = ice && ice.zh ? { zh: ice.zh, en: ice.en } : null;
+
+	const advice = asString(source.strategy_advice);
+	if (!advice && hooks.length === 0 && !icebreaker) return null;
+
+	return { strategy_advice: advice, personal_hooks: hooks, ready_to_use_icebreaker: icebreaker };
+}
+
+export function normalizePlaybookPayload(raw: unknown): PlaybookPayload {
+	const source = (raw ?? {}) as Record<string, unknown>;
+	const counterpart = source.counterpart_type;
+
+	return {
+		counterpart_type:
+			counterpart === "supplier" || counterpart === "friend" ? counterpart : "customer",
+		executive_summary: asString(source.executive_summary) || null,
+		short_tags: Array.isArray(source.short_tags)
+			? source.short_tags.filter((tag): tag is string => typeof tag === "string" && tag.trim() !== "")
+			: [],
+		personality_spectrums: normalizeSpectrums(source.personality_spectrums),
+		small_talk_playbook: normalizeSmallTalk(source.small_talk_playbook),
+		profile: normalizeItems(source.profile),
+		business_value: normalizeItems(source.business_value),
+		pain_points: normalizeItems(source.pain_points),
+		sweet_spots: normalizeItems(source.sweet_spots),
+		taboos: normalizeItems(source.taboos),
+	};
+}
+
+/** 详情页用：每个 kind 只取最新一条 applied，playbook 一律归一化成 V2 形状。 */
 export async function latestInsights(contactId: string): Promise<RelationshipInsight[]> {
 	const rows = await db()
 		.select()
@@ -135,7 +312,10 @@ export async function latestInsights(contactId: string): Promise<RelationshipIns
 			id: row.id,
 			contactId: row.contactId,
 			kind: row.kind as InsightKind,
-			payload: row.payload as RelationshipInsight["payload"],
+			payload:
+				row.kind === "playbook"
+					? normalizePlaybookPayload(row.payload)
+					: (row.payload as RelationshipInsight["payload"]),
 			evidence: parseEvidence(row.evidence),
 			source: row.source,
 			status: factStatus(row.status),
@@ -152,15 +332,57 @@ export function describeInsights(insights: RelationshipInsight[]): string[] {
 
 	for (const insight of insights) {
 		if (insight.kind === "playbook") {
-			const payload = insight.payload as z.infer<typeof playbookSchema>;
-			const section = (items: { text: string }[]) =>
-				items.map((item) => item.text).join("；") || "无";
-			const profile = (payload as { profile?: { text: string }[] }).profile ?? [];
-			const businessValue = (payload as { business_value?: { text: string }[] }).business_value ?? [];
+			const payload = insight.payload as PlaybookPayload;
 
-			lines.push(
-				`客户洞察（对象类型：${payload.counterpart_type}）：画像标签=${profile.map((item) => item.text).join("、") || "无"}；商务价值=${businessValue.map((item) => item.text).join("；") || "无"}；痛点=${section(payload.pain_points)}；爽点=${section(payload.sweet_spots)}；雷区=${section(payload.taboos)}`,
-			);
+			if (payload.executive_summary) {
+				lines.push(`人物白描：${payload.executive_summary}`);
+			}
+
+			const tags = payload.short_tags.length
+				? payload.short_tags
+				: payload.profile.map((item) => item.title);
+			if (tags.length) {
+				lines.push(`短标签：${tags.join("、")}`);
+			}
+
+			if (payload.personality_spectrums) {
+				const s = payload.personality_spectrums;
+				lines.push(
+					`性格光谱（0=左极，100=右极）：严谨vs灵活 ${s.rigor_vs_flexibility.score}/100（${s.rigor_vs_flexibility.note}）；公事vs人情 ${s.transactional_vs_relational.score}/100（${s.transactional_vs_relational.note}）；直觉vs实证 ${s.trust_mechanism.score}/100（${s.trust_mechanism.note}）`,
+				);
+			}
+
+			const deep = (label: string, items: PlaybookPayload["business_value"]) => {
+				if (!items.length) return null;
+				const parts = items.map((item) => {
+					const confidence = item.confidence !== null ? `（置信${item.confidence}%）` : "";
+					const attribution = item.attribution ? `——${item.attribution}` : "";
+					return `${item.title}${confidence}${attribution}`;
+				});
+				return `${label}=${parts.join("；")}`;
+			};
+
+			const sections = [
+				deep("商务潜力", payload.business_value),
+				deep("痛点与防御", payload.pain_points),
+				deep("沟通爽点", payload.sweet_spots),
+				deep("沟通雷区", payload.taboos),
+			].filter(Boolean);
+			if (sections.length) {
+				lines.push(`深度洞察：${sections.join("；")}`);
+			}
+
+			const smallTalk = payload.small_talk_playbook;
+			if (smallTalk) {
+				const hooks = smallTalk.personal_hooks
+					.map((hook) => `[${hook.category}] ${hook.detail}（原话：「${hook.quote}」）`)
+					.join("；");
+				const ice = smallTalk.ready_to_use_icebreaker;
+				const icebreaker = ice ? `；现成破冰话术：${ice.zh}${ice.en ? ` / ${ice.en}` : ""}` : "";
+				lines.push(
+					`家常弹药库：配比建议=${smallTalk.strategy_advice || "无"}；弹药=${hooks || "无"}${icebreaker}`,
+				);
+			}
 		}
 
 		if (insight.kind === "dual_track") {

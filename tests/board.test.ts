@@ -6,6 +6,7 @@ import { createActivity } from "../server/utils/activities";
 import { board, pinItem } from "../server/utils/board";
 import { CONFIG } from "../server/utils/config";
 import { createDeal } from "../server/utils/deals";
+import { recordInsight } from "../server/utils/insights";
 import { closePromise, recordPromise } from "../server/utils/promises";
 import { closeDb, db } from "../server/utils/db";
 import { contactFixture, evidence, resetDatabase } from "./helpers";
@@ -37,12 +38,12 @@ function itemOf(result: Board, type: BoardItem["type"], id: string): BoardItem |
 	return null;
 }
 
-async function task(input: { title: string; dueAt: number | null }) {
+async function task(input: { title: string; dueAt: number | null; contactId?: string | null }) {
 	return createActivity({
 		kind: "task",
 		title: input.title,
 		body: null,
-		contactId: null,
+		contactId: input.contactId ?? null,
 		companyId: null,
 		dealId: null,
 		dueAt: input.dueAt,
@@ -145,6 +146,153 @@ describe("四象限：推断规则", () => {
 		const urgent = result.columns.find((column) => column.quadrant === "urgent");
 
 		expect(urgent?.items).toHaveLength(0);
+	});
+});
+
+describe("四象限：事务健康度联动升舱", () => {
+	/** 建一位事务健康度负面的联系人（默认 Frustrated / -60，即实机 Michael Wake 的处境）。 */
+	async function poorHealthContact(level = "Frustrated", score = -60) {
+		const contact = await contactFixture({ firstName: "Michael", lastName: "Wake" });
+
+		await recordInsight({
+			contactId: contact.id,
+			kind: "dual_track",
+			payload: {
+				transaction_health: {
+					level,
+					score,
+					note: "发货第 15 天仍未收到，物流绕道墨尔本",
+					quote: "i am just frustrated",
+					time: "2026-10-13 09:15",
+				},
+				personal_trust: {
+					level: "High",
+					score: 70,
+					note: "虽不满物流但明确体谅我方的努力",
+					quote: "I know you are trying, i am just frustrated",
+					time: "2026-10-13 09:15",
+				},
+			},
+			evidence: [evidence("wechat.chat", "i am just frustrated", null, "2026-10-13 09:15")],
+		});
+
+		return contact;
+	}
+
+	test("Frustrated 客户的「每日盯物流并立即通知」承诺强制进第一象限（实机 Bug 复现）", async () => {
+		const contact = await poorHealthContact();
+		const created = await recordPromise({
+			contactId: contact.id,
+			direction: "ours",
+			title: "每日盯物流并在到达/派送时立即通知",
+			dueHint: "到达/派送时",
+			evidence: [evidence()],
+		});
+
+		const result = await board();
+		const promiseId = created.promiseId ?? "";
+
+		expect(quadrantOf(result, "promise", promiseId)).toBe("urgent_important");
+		expect(itemOf(result, "promise", promiseId)?.badge).toContain("Frustrated");
+	});
+
+	test("健康客户的同一条承诺仍按默认落「重要不紧急」——没有证据不升舱", async () => {
+		const contact = await contactFixture({ firstName: "没事的", lastName: "客户" });
+		const created = await recordPromise({
+			contactId: contact.id,
+			direction: "ours",
+			title: "每日盯物流并在到达/派送时立即通知",
+			dueHint: "到达/派送时",
+			evidence: [evidence()],
+		});
+
+		expect(quadrantOf(await board(), "promise", created.promiseId ?? "")).toBe("important");
+	});
+
+	test("Frustrated 客户的远期承诺（下一单折扣）保留在「重要不紧急」", async () => {
+		const contact = await poorHealthContact();
+		const future = await recordPromise({
+			contactId: contact.id,
+			direction: "ours",
+			title: "下一单给 8% 折扣补偿",
+			dueHint: "下一单",
+			evidence: [evidence()],
+		});
+		const plain = await recordPromise({
+			contactId: contact.id,
+			direction: "ours",
+			title: "未来订单改香港直飞珀斯航线",
+			evidence: [evidence()],
+		});
+
+		const result = await board();
+
+		expect(quadrantOf(result, "promise", future.promiseId ?? "")).toBe("important");
+		expect(quadrantOf(result, "promise", plain.promiseId ?? "")).toBe("important");
+	});
+
+	test("对方许的承诺即使带高频语义也不升舱", async () => {
+		const contact = await poorHealthContact();
+		const created = await recordPromise({
+			contactId: contact.id,
+			direction: "theirs",
+			title: "每日同步物流进展",
+			evidence: [evidence()],
+		});
+
+		expect(quadrantOf(await board(), "promise", created.promiseId ?? "")).toBe("neither");
+	});
+
+	test("Frustrated 客户名下未到期/无截止日的跟进任务全部升舱进第一象限", async () => {
+		const contact = await poorHealthContact();
+		const future = await task({
+			title: "查订单澳洲段物流并同步",
+			dueAt: Date.now() + 3 * DAY,
+			contactId: contact.id,
+		});
+		const someday = await task({ title: "盯派送节点", dueAt: null, contactId: contact.id });
+
+		const result = await board();
+
+		expect(quadrantOf(result, "task", future.id)).toBe("urgent_important");
+		expect(quadrantOf(result, "task", someday.id)).toBe("urgent_important");
+		expect(itemOf(result, "task", future.id)?.badge).toContain("客户Frustrated");
+	});
+
+	test("健康度分值低于 40 也算负面（分级词中性时靠分数兜底）", async () => {
+		const contact = await poorHealthContact("Medium", 30);
+		const created = await recordPromise({
+			contactId: contact.id,
+			direction: "ours",
+			title: "每日盯物流并立即通知",
+			evidence: [evidence()],
+		});
+
+		expect(quadrantOf(await board(), "promise", created.promiseId ?? "")).toBe("urgent_important");
+	});
+
+	test("升舱是推断值：手工拖走后仍然说话算数，拖回即恢复", async () => {
+		const contact = await poorHealthContact();
+		const created = await recordPromise({
+			contactId: contact.id,
+			direction: "ours",
+			title: "每日盯物流并立即通知",
+			evidence: [evidence()],
+		});
+		const promiseId = created.promiseId ?? "";
+		const before = itemOf(await board(), "promise", promiseId);
+		expect(before?.inferred).toBe("urgent_important");
+
+		await pinItem({
+			type: "promise",
+			id: promiseId,
+			quadrant: "important",
+			inferred: before?.inferred ?? "urgent_important",
+		});
+
+		const after = await board();
+		expect(quadrantOf(after, "promise", promiseId)).toBe("important");
+		expect(itemOf(after, "promise", promiseId)?.pinned).toBe(true);
 	});
 });
 

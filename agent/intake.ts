@@ -176,7 +176,6 @@ export async function runIntake(input: IntakeInput): Promise<IntakeResult> {
 		tools: crmTools(),
 		stopWhen: stepCountIs(CONFIG.agent.maxSteps),
 		maxOutputTokens: CONFIG.agent.maxOutputTokens,
-		abortSignal: AbortSignal.timeout(CONFIG.agent.requestTimeoutMs),
 		maxRetries: CONFIG.agent.maxRetries,
 	});
 

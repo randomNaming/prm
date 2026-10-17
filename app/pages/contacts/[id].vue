@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { ACTIVITY_KIND_LABELS, COUNTERPART_TYPE_LABELS, DEAL_STAGES, FACT_FIELDS, FACT_FIELD_LABELS, RELATIONSHIP_REPAIR } from "~/types/domain";
+import {
+	ACTIVITY_KIND_LABELS,
+	COUNTERPART_TYPE_LABELS,
+	DEAL_STAGES,
+	FACT_FIELDS,
+	FACT_FIELD_LABELS,
+	RELATIONSHIP_REPAIR,
+	SPECTRUM_AXES,
+} from "~/types/domain";
 import type { IntakeArchive, PlaybookPayload, DualTrackPayload, PromiseItem } from "~/types/domain";
 import { copyText } from "~/utils/clipboard";
 
@@ -70,17 +78,26 @@ const dualTrack = computed(() => {
 	return insight ? (insight.payload as DualTrackPayload) : null;
 });
 
-const playbookGroups = computed(() => {
+/** 左栏的深度归因卡片组：商务潜力 + 痛点防御；旧数据的 profile 也降级渲染在这里。 */
+const deepGroups = computed(() => {
 	if (!playbook.value) return [];
 
 	return [
-		{ label: "画像与属性标签", tag: "warning" as const, items: playbook.value.profile ?? [] },
-		{ label: "商务价值与潜力", tag: "success" as const, items: playbook.value.business_value ?? [] },
-		{ label: "沟通爽点（吃哪一套）", tag: "primary" as const, items: playbook.value.sweet_spots ?? [] },
-		{ label: "沟通雷区（千万别踩）", tag: "danger" as const, items: playbook.value.taboos ?? [] },
-		{ label: "痛点与防御", tag: "info" as const, items: playbook.value.pain_points ?? [] },
+		{ key: "business", label: "商务潜力", dot: "#9a6b2f", items: playbook.value.business_value ?? [] },
+		{ key: "pain", label: "痛点与防御", dot: "#b05c43", items: playbook.value.pain_points ?? [] },
+		{ key: "profile", label: "画像与属性标签", dot: "#7c8b99", items: playbook.value.profile ?? [] },
 	].filter((group) => group.items.length > 0);
 });
+
+/** 中栏的性格光谱条：极性词来自 SPECTRUM_AXES，分数越高越靠右端。 */
+const spectrumAxes = computed(() => {
+	const spectrums = playbook.value?.personality_spectrums;
+	if (!spectrums) return [];
+
+	return SPECTRUM_AXES.map((axis) => ({ ...axis, side: spectrums[axis.key] }));
+});
+
+const smallTalk = computed(() => playbook.value?.small_talk_playbook ?? null);
 
 const dualTracks = computed(() => {
 	if (!dualTrack.value) return [];
@@ -93,6 +110,38 @@ const dualTracks = computed(() => {
 
 function trackBarWidth(score: number | null): string {
 	return `${Math.max(0, Math.min(100, ((score ?? 0) + 100) / 2))}%`;
+}
+
+/** 原话依据的展开状态，key = `组-序号`。换新 Set 才能触发响应式更新。 */
+const expandedEvidence = ref(new Set<string>());
+
+function toggleEvidence(key: string) {
+	const next = new Set(expandedEvidence.value);
+
+	if (next.has(key)) {
+		next.delete(key);
+	} else {
+		next.add(key);
+	}
+
+	expandedEvidence.value = next;
+}
+
+/** 破冰话术一键复制（中英两行一起进剪贴板）。内网 http 下 copyText 自带兜底。 */
+const icebreakerCopied = ref(false);
+let icebreakerTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function copyIcebreaker() {
+	const icebreaker = smallTalk.value?.ready_to_use_icebreaker;
+	const text = icebreaker ? [icebreaker.zh, icebreaker.en].filter(Boolean).join("\n") : "";
+
+	if (!text || !(await copyText(text))) return;
+
+	icebreakerCopied.value = true;
+	if (icebreakerTimer) clearTimeout(icebreakerTimer);
+	icebreakerTimer = setTimeout(() => {
+		icebreakerCopied.value = false;
+	}, 2000);
 }
 
 // ===== 双向承诺账本 =====
@@ -316,104 +365,242 @@ async function changeStage(dealId: string, stage: string) {
 
 			<el-tabs v-model="activeTab">
 				<el-tab-pane label="概览" name="overview">
-					<div class="crm-grid">
-						<section v-if="playbook" class="crm-card crm-playbook">
-							<h2 class="crm-section__title">
-								客户洞察
-								<el-tag size="small" effect="plain">{{ COUNTERPART_TYPE_LABELS[playbook.counterpart_type] }}</el-tag>
-							</h2>
-							<p class="crm-muted crm-playbook__hint">来自聊天记录的画像、商务价值与相处洞察，悬停标签看原话依据。</p>
-							<div v-for="group in playbookGroups" :key="group.label" class="crm-playbook__group">
-								<div class="crm-playbook__label">{{ group.label }}</div>
-								<el-popover
-									v-for="(item, index) in group.items"
-									:key="index"
-									trigger="hover"
-									width="340"
-								>
-									<template #reference>
-										<el-tag class="crm-playbook__item" :type="group.tag" effect="plain">
-											{{ item.text }}
-										</el-tag>
-									</template>
-									<div class="crm-evidence-pop">
-										<p>「{{ item.quote }}」</p>
-										<span class="crm-muted">{{ item.time ?? "时间未知" }}</span>
-									</div>
-								</el-popover>
-							</div>
-						</section>
+					<!-- 顶栏：人物白描 + 短标签。旧数据没有白描时给补全入口。 -->
+					<section v-if="playbook" class="crm-card crm-profile-head crm-section">
+						<div class="crm-spread crm-profile-head__top">
+							<h2 class="crm-section__title">人物白描</h2>
+							<el-tag size="small" effect="plain">{{ COUNTERPART_TYPE_LABELS[playbook.counterpart_type] }}</el-tag>
+						</div>
+						<p v-if="playbook.executive_summary" class="crm-executive">{{ playbook.executive_summary }}</p>
+						<p v-else class="crm-executive crm-executive--empty">
+							还没有人物白描。点右上角「重新研究」，智能体会补一段一针见血的总括。
+						</p>
+						<div v-if="playbook.short_tags.length" class="crm-short-tags">
+							<span v-for="tag in playbook.short_tags" :key="tag" class="crm-short-tag">#{{ tag }}</span>
+						</div>
+					</section>
 
-						<section v-if="dualTrack" class="crm-card crm-dual-track">
-							<h2 class="crm-section__title">关系双轨温度</h2>
-							<div v-for="track in dualTracks" :key="track.key" class="crm-dual-track__row">
-								<div class="crm-dual-track__head">
-									<strong>{{ track.label }}</strong>
-									<el-tag size="small" :type="(track.side.score ?? 0) >= 0 ? 'success' : 'danger'" effect="plain">
-										{{ track.side.level }}
-									</el-tag>
-								</div>
-								<div class="crm-dual-track__bar">
-									<div class="crm-dual-track__fill" :style="{ width: trackBarWidth(track.side.score) }" />
-								</div>
-								<el-popover v-if="track.side.note" trigger="hover" width="340">
-									<template #reference>
-										<div class="crm-muted crm-dual-track__note">{{ track.side.note }}</div>
-									</template>
-									<div class="crm-evidence-pop">
-										<p v-if="track.side.quote">「{{ track.side.quote }}」</p>
-										<span class="crm-muted">{{ track.side.time ?? "时间未知" }}</span>
+					<div
+						v-if="deepGroups.length || dualTrack || data.promises.length > 0"
+						class="crm-columns crm-section"
+					>
+						<!-- 左栏：深度画像与心理归因 -->
+						<div class="crm-col">
+							<section v-if="deepGroups.length" class="crm-card">
+								<h2 class="crm-section__title">深度画像与心理归因</h2>
+								<p class="crm-muted crm-card__hint">表象背后的心理动机。置信度越高越接近铁律；「▶ 原话依据」可展开，悬停也可预览。</p>
+								<div v-for="group in deepGroups" :key="group.key" class="crm-deep__group">
+									<div class="crm-deep__label">
+										<span class="crm-deep__dot" :style="{ background: group.dot }" />
+										{{ group.label }}
 									</div>
-								</el-popover>
-								<div v-else class="crm-muted crm-dual-track__note">—</div>
-							</div>
-						</section>
-
-						<section v-if="data.promises.length > 0" class="crm-card crm-ledger">
-							<h2 class="crm-section__title">双向承诺账本</h2>
-							<el-alert v-if="promiseError" type="error" :closable="false" show-icon :title="promiseError" />
-							<div v-for="group in promiseGroups" :key="group.direction" class="crm-ledger__group">
-								<div class="crm-ledger__label">{{ group.label }}</div>
-								<div v-for="item in group.items" :key="item.id" class="crm-ledger__item">
-									<el-popover trigger="hover" width="340">
-										<template #reference>
-											<div class="crm-ledger__title">
-												{{ item.title }}
-												<el-tag v-if="item.dueHint" size="small" effect="plain">{{ item.dueHint }}</el-tag>
+									<article v-for="(item, index) in group.items" :key="index" class="crm-deep">
+										<header class="crm-deep__head">
+											<strong class="crm-deep__title">{{ item.title }}</strong>
+											<span v-if="item.confidence !== null" class="crm-deep__conf">
+												<span class="crm-deep__conf-text">置信 {{ item.confidence }}%</span>
+												<span class="crm-deep__conf-bar">
+													<i :style="{ width: `${item.confidence}%` }" />
+												</span>
+											</span>
+										</header>
+										<p v-if="item.attribution" class="crm-deep__attr">{{ item.attribution }}</p>
+										<el-popover trigger="hover" width="340">
+											<template #reference>
+												<button
+													type="button"
+													class="crm-deep__toggle"
+													@click="toggleEvidence(`${group.key}-${index}`)"
+												>
+													{{ expandedEvidence.has(`${group.key}-${index}`) ? "▾" : "▶" }} 原话依据
+												</button>
+											</template>
+											<div class="crm-evidence-pop">
+												<p>「{{ item.quote }}」</p>
+												<span class="crm-muted">{{ item.time ?? "时间未知" }}</span>
 											</div>
+										</el-popover>
+										<div v-if="expandedEvidence.has(`${group.key}-${index}`)" class="crm-deep__quote">
+											「{{ item.quote }}」<span class="crm-muted">{{ item.time ?? "时间未知" }}</span>
+										</div>
+									</article>
+								</div>
+							</section>
+						</div>
+
+						<!-- 中栏：双轨温度计 + 性格光谱 + 家常弹药库 -->
+						<div class="crm-col">
+							<section v-if="dualTrack" class="crm-card crm-dual-track">
+								<h2 class="crm-section__title">关系双轨温度</h2>
+								<div v-for="track in dualTracks" :key="track.key" class="crm-dual-track__row">
+									<div class="crm-dual-track__head">
+										<strong>{{ track.label }}</strong>
+										<el-tag size="small" :type="(track.side.score ?? 0) >= 0 ? 'success' : 'danger'" effect="plain">
+											{{ track.side.level }}
+										</el-tag>
+									</div>
+									<div class="crm-dual-track__bar">
+										<div class="crm-dual-track__fill" :style="{ width: trackBarWidth(track.side.score) }" />
+									</div>
+									<el-popover v-if="track.side.note" trigger="hover" width="340">
+										<template #reference>
+											<div class="crm-muted crm-dual-track__note">{{ track.side.note }}</div>
 										</template>
 										<div class="crm-evidence-pop">
-											<p v-for="(ev, index) in item.evidence" :key="index">「{{ ev.quote }}」</p>
-											<span class="crm-muted">{{ item.evidence[0]?.time ?? "时间未知" }}</span>
+											<p v-if="track.side.quote">「{{ track.side.quote }}」</p>
+											<span class="crm-muted">{{ track.side.time ?? "时间未知" }}</span>
 										</div>
 									</el-popover>
-									<div class="crm-row">
-										<el-button
-											size="small"
-											type="primary"
-											link
-											:loading="promiseBusy === item.id"
-											@click="closePromiseItem(item, 'fulfilled')"
-										>
-											已兑现
-										</el-button>
-										<el-button
-											size="small"
-											link
-											type="danger"
-											:loading="promiseBusy === item.id"
-											@click="closePromiseItem(item, 'cancelled')"
-										>
-											不兑现
-										</el-button>
+									<div v-else class="crm-muted crm-dual-track__note">—</div>
+								</div>
+							</section>
+
+							<section v-if="spectrumAxes.length" class="crm-card">
+								<h2 class="crm-section__title">三维性格光谱</h2>
+								<div v-for="axis in spectrumAxes" :key="axis.key" class="crm-spec">
+									<div class="crm-spec__labels">
+										<span>{{ axis.left }}</span>
+										<span class="crm-spec__dim">{{ axis.label }}</span>
+										<span>{{ axis.right }}</span>
+									</div>
+									<div class="crm-spec__track">
+										<span class="crm-spec__dot" :style="{ left: `${axis.side.score}%` }" />
+									</div>
+									<div v-if="axis.side.note" class="crm-muted crm-spec__note">{{ axis.side.note }}</div>
+								</div>
+							</section>
+
+							<section v-if="smallTalk" class="crm-card crm-smalltalk">
+								<h2 class="crm-section__title">☕ 破冰与家常弹药库</h2>
+								<p v-if="smallTalk.strategy_advice" class="crm-smalltalk__advice">
+									{{ smallTalk.strategy_advice }}
+								</p>
+								<ul v-if="smallTalk.personal_hooks.length" class="crm-smalltalk__hooks">
+									<li v-for="(hook, index) in smallTalk.personal_hooks" :key="index">
+										<el-popover trigger="hover" width="340">
+											<template #reference>
+												<span class="crm-smalltalk__hook">
+													<span class="crm-smalltalk__cat">{{ hook.category }}</span>
+													{{ hook.detail }}
+												</span>
+											</template>
+											<div class="crm-evidence-pop">
+												<p>「{{ hook.quote }}」</p>
+												<span class="crm-muted">{{ hook.time ?? "时间未知" }}</span>
+											</div>
+										</el-popover>
+									</li>
+								</ul>
+								<div v-if="smallTalk.ready_to_use_icebreaker" class="crm-icebreaker">
+									<div class="crm-icebreaker__text">
+										<p>{{ smallTalk.ready_to_use_icebreaker.zh }}</p>
+										<p v-if="smallTalk.ready_to_use_icebreaker.en" class="crm-muted">
+											{{ smallTalk.ready_to_use_icebreaker.en }}
+										</p>
+									</div>
+									<el-button
+										size="small"
+										plain
+										:type="icebreakerCopied ? 'success' : 'primary'"
+										@click="copyIcebreaker"
+									>
+										{{ icebreakerCopied ? "已复制" : "一键复制" }}
+									</el-button>
+								</div>
+							</section>
+						</div>
+
+						<!-- 右栏：双向承诺账本 + 相处红绿灯 -->
+						<div class="crm-col">
+							<section v-if="data.promises.length > 0" class="crm-card crm-ledger">
+								<h2 class="crm-section__title">双向承诺账本</h2>
+								<el-alert v-if="promiseError" type="error" :closable="false" show-icon :title="promiseError" />
+								<div v-for="group in promiseGroups" :key="group.direction" class="crm-ledger__group">
+									<div class="crm-ledger__label">{{ group.label }}</div>
+									<div v-for="item in group.items" :key="item.id" class="crm-ledger__item">
+										<el-popover trigger="hover" width="340">
+											<template #reference>
+												<div class="crm-ledger__title">
+													{{ item.title }}
+													<el-tag v-if="item.dueHint" size="small" effect="plain">{{ item.dueHint }}</el-tag>
+												</div>
+											</template>
+											<div class="crm-evidence-pop">
+												<p v-for="(ev, index) in item.evidence" :key="index">「{{ ev.quote }}」</p>
+												<span class="crm-muted">{{ item.evidence[0]?.time ?? "时间未知" }}</span>
+											</div>
+										</el-popover>
+										<div class="crm-row">
+											<el-button
+												size="small"
+												type="primary"
+												link
+												:loading="promiseBusy === item.id"
+												@click="closePromiseItem(item, 'fulfilled')"
+											>
+												已兑现
+											</el-button>
+											<el-button
+												size="small"
+												link
+												type="danger"
+												:loading="promiseBusy === item.id"
+												@click="closePromiseItem(item, 'cancelled')"
+											>
+												不兑现
+											</el-button>
+										</div>
 									</div>
 								</div>
-							</div>
-							<div v-if="promiseGroups.length === 0" class="crm-muted crm-ledger__label">
-								没有待处理的承诺（历史 {{ data.promises.length }} 条已闭环）。
-							</div>
-						</section>
+								<div v-if="promiseGroups.length === 0" class="crm-muted crm-ledger__label">
+									没有待处理的承诺（历史 {{ data.promises.length }} 条已闭环）。
+								</div>
+							</section>
 
+							<section
+								v-if="playbook && (playbook.sweet_spots.length > 0 || playbook.taboos.length > 0)"
+								class="crm-card"
+							>
+								<h2 class="crm-section__title">相处红绿灯</h2>
+								<ul class="crm-lights">
+									<li v-for="(item, index) in playbook.sweet_spots" :key="`sweet-${index}`">
+										<el-popover trigger="hover" width="340">
+											<template #reference>
+												<span class="crm-lights__item">
+													<span class="crm-lights__mark">✅</span>{{ item.title }}
+												</span>
+											</template>
+											<div class="crm-evidence-pop">
+												<p>「{{ item.quote }}」</p>
+												<span class="crm-muted">{{ item.time ?? "时间未知" }}</span>
+											</div>
+										</el-popover>
+									</li>
+									<li v-for="(item, index) in playbook.taboos" :key="`taboo-${index}`">
+										<el-popover trigger="hover" width="340">
+											<template #reference>
+												<span class="crm-lights__item">
+													<span class="crm-lights__mark">❌</span>{{ item.title }}
+												</span>
+											</template>
+											<div class="crm-evidence-pop">
+												<p>「{{ item.quote }}」</p>
+												<span class="crm-muted">{{ item.time ?? "时间未知" }}</span>
+											</div>
+										</el-popover>
+									</li>
+								</ul>
+							</section>
+						</div>
+					</div>
+
+					<el-empty
+						v-else-if="!playbook && !dualTrack"
+						description="还没有关系洞察：导入聊天记录或点「重新研究」后，这里会出现人物白描与相处说明书。"
+						:image-size="70"
+					/>
+
+					<div class="crm-grid">
 						<section class="crm-card">
 							<h2 class="crm-section__title">基本信息</h2>
 							<el-descriptions :column="1" border>
@@ -638,24 +825,9 @@ async function changeStage(dealId: string, stage: string) {
 	margin-left: 8px;
 }
 
-.crm-playbook__hint {
+.crm-card__hint {
 	font-size: 12px;
-	margin: 0 0 8px;
-}
-
-.crm-playbook__group {
-	margin-bottom: 10px;
-}
-
-.crm-playbook__label {
-	font-size: 12px;
-	color: var(--crm-muted);
-	margin-bottom: 6px;
-}
-
-.crm-playbook__item {
-	margin: 0 6px 6px 0;
-	cursor: default;
+	margin: 0 0 10px;
 }
 
 .crm-evidence-pop p {
@@ -664,35 +836,299 @@ async function changeStage(dealId: string, stage: string) {
 	font-size: 13px;
 }
 
-.crm-dual-track__row {
+/* ===== 顶栏：人物白描 + 短标签 ===== */
+
+.crm-profile-head__top {
+	margin-bottom: 8px;
+}
+
+.crm-profile-head__top .crm-section__title {
+	margin: 0;
+}
+
+/* 白描引用块：暖灰米白底，读起来像档案袋封面的一段手写总评。 */
+.crm-executive {
+	margin: 0;
+	padding: 12px 14px;
+	background: #faf7f0;
+	border: 1px solid #ede5d5;
+	border-left: 3px solid #c9b68a;
+	border-radius: 6px;
+	line-height: 1.8;
+	font-size: 14px;
+}
+
+.crm-executive--empty {
+	color: var(--crm-muted);
+	font-size: 13px;
+}
+
+.crm-short-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 10px;
+}
+
+/* 短标签是 #话题 式的小胶囊：约束在 10 字内，怎么放都不会截断。 */
+.crm-short-tag {
+	font-size: 12px;
+	color: #5b6b5f;
+	background: #f2f5f1;
+	border: 1px solid #dfe7e0;
+	border-radius: 999px;
+	padding: 2px 10px;
+	white-space: nowrap;
+}
+
+/* ===== 三栏布局 ===== */
+
+.crm-columns {
+	display: grid;
+	grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr);
+	gap: 16px;
+	align-items: start;
+}
+
+.crm-col {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	min-width: 0;
+}
+
+/* ===== 左栏：深度归因卡片 ===== */
+
+.crm-deep__group {
 	margin-bottom: 14px;
 }
 
-.crm-dual-track__head {
+.crm-deep__group:last-child {
+	margin-bottom: 0;
+}
+
+.crm-deep__label {
 	display: flex;
 	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--crm-muted);
+	margin-bottom: 8px;
+}
+
+.crm-deep__dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex: none;
+}
+
+.crm-deep {
+	border: 1px solid var(--crm-line);
+	border-radius: 6px;
+	background: var(--crm-surface);
+	padding: 10px 12px;
+	margin-bottom: 8px;
+}
+
+.crm-deep:last-child {
+	margin-bottom: 0;
+}
+
+.crm-deep__head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.crm-deep__title {
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.crm-deep__conf {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+}
+
+.crm-deep__conf-text {
+	font-size: 11px;
+	color: var(--crm-muted);
+	white-space: nowrap;
+}
+
+.crm-deep__conf-bar {
+	width: 44px;
+	height: 4px;
+	border-radius: 2px;
+	background: #e8e8e4;
+	overflow: hidden;
+	display: inline-block;
+}
+
+.crm-deep__conf-bar i {
+	display: block;
+	height: 100%;
+	border-radius: 2px;
+	background: var(--crm-brand);
+}
+
+.crm-deep__attr {
+	margin: 6px 0 0;
+	font-size: 12px;
+	color: var(--crm-muted);
+	line-height: 1.7;
+}
+
+.crm-deep__toggle {
+	border: none;
+	background: none;
+	padding: 4px 0 0;
+	margin-top: 6px;
+	font-size: 12px;
+	color: var(--crm-brand);
+	cursor: pointer;
+}
+
+.crm-deep__toggle:hover {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.crm-deep__quote {
+	margin-top: 6px;
+	padding: 8px 10px;
+	border-left: 3px solid var(--crm-line);
+	background: #fff;
+	border-radius: 0 4px 4px 0;
+	font-size: 12px;
+	color: var(--crm-muted);
+	line-height: 1.7;
+	word-break: break-word;
+}
+
+/* ===== 中栏：性格光谱条 ===== */
+
+.crm-spec {
+	margin-bottom: 14px;
+}
+
+.crm-spec:last-child {
+	margin-bottom: 0;
+}
+
+.crm-spec__labels {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
 	gap: 8px;
+	font-size: 12px;
+	color: var(--crm-ink);
 	margin-bottom: 6px;
 }
 
-.crm-dual-track__bar {
-	height: 8px;
-	border-radius: 4px;
-	background: var(--crm-surface);
-	overflow: hidden;
+.crm-spec__dim {
+	color: var(--crm-muted);
+	font-size: 11px;
 }
 
-.crm-dual-track__fill {
-	height: 100%;
-	border-radius: 4px;
-	background: linear-gradient(90deg, #d94a4a, var(--crm-brand));
+.crm-spec__track {
+	position: relative;
+	height: 6px;
+	border-radius: 3px;
+	background: linear-gradient(90deg, #eef1ee, #e2e8e4);
 }
 
-.crm-dual-track__note {
+.crm-spec__dot {
+	position: absolute;
+	top: 50%;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: var(--crm-brand);
+	border: 3px solid #fff;
+	box-shadow: 0 0 0 1px var(--crm-line);
+	transform: translate(-50%, -50%);
+	transition: left 0.2s ease;
+}
+
+.crm-spec__note {
 	font-size: 12px;
-	margin-top: 4px;
+	margin-top: 6px;
+}
+
+/* ===== 中栏：家常弹药库 ===== */
+
+.crm-smalltalk__advice {
+	margin: 0 0 10px;
+	padding: 8px 10px;
+	background: #f4f7f2;
+	border-left: 3px solid var(--crm-brand);
+	border-radius: 0 4px 4px 0;
+	font-size: 12.5px;
+	line-height: 1.7;
+}
+
+.crm-smalltalk__hooks {
+	list-style: none;
+	margin: 0 0 10px;
+	padding: 0;
+}
+
+.crm-smalltalk__hooks li {
+	padding: 5px 0;
+	border-bottom: 1px dashed var(--crm-line);
+	font-size: 12.5px;
+	line-height: 1.7;
 	cursor: default;
 }
+
+.crm-smalltalk__hooks li:last-child {
+	border-bottom: none;
+}
+
+.crm-smalltalk__cat {
+	display: inline-block;
+	font-size: 11px;
+	color: #6c5b3a;
+	background: #f6f1e4;
+	border-radius: 3px;
+	padding: 0 5px;
+	margin-right: 6px;
+	white-space: nowrap;
+}
+
+.crm-icebreaker {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 10px 12px;
+	background: #faf7f0;
+	border: 1px solid #ede5d5;
+	border-radius: 6px;
+}
+
+.crm-icebreaker__text {
+	min-width: 0;
+}
+
+.crm-icebreaker__text p {
+	margin: 0;
+	font-size: 12.5px;
+	line-height: 1.7;
+	word-break: break-word;
+}
+
+.crm-icebreaker__text p + p {
+	margin-top: 4px;
+	font-size: 12px;
+}
+
+/* ===== 右栏：承诺账本（沿用紧凑样式）与相处红绿灯 ===== */
 
 .crm-ledger__group {
 	margin-bottom: 10px;
@@ -719,6 +1155,34 @@ async function changeStage(dealId: string, stage: string) {
 
 .crm-ledger__title {
 	cursor: default;
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.crm-lights {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.crm-lights li {
+	padding: 5px 0;
+	border-bottom: 1px dashed var(--crm-line);
+}
+
+.crm-lights li:last-child {
+	border-bottom: none;
+}
+
+.crm-lights__item {
+	font-size: 13px;
+	line-height: 1.7;
+	cursor: default;
+	word-break: break-word;
+}
+
+.crm-lights__mark {
+	margin-right: 6px;
 }
 
 .crm-note-body {
@@ -764,5 +1228,45 @@ async function changeStage(dealId: string, stage: string) {
 	line-height: 1.7;
 	white-space: pre-wrap;
 	word-break: break-word;
+}
+
+.crm-dual-track__row {
+	margin-bottom: 14px;
+}
+
+.crm-dual-track__row:last-child {
+	margin-bottom: 0;
+}
+
+.crm-dual-track__head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 6px;
+}
+
+.crm-dual-track__bar {
+	height: 8px;
+	border-radius: 4px;
+	background: var(--crm-surface);
+	overflow: hidden;
+}
+
+.crm-dual-track__fill {
+	height: 100%;
+	border-radius: 4px;
+	background: linear-gradient(90deg, #d94a4a, var(--crm-brand));
+}
+
+.crm-dual-track__note {
+	font-size: 12px;
+	margin-top: 4px;
+	cursor: default;
+}
+
+@media (max-width: 1080px) {
+	.crm-columns {
+		grid-template-columns: minmax(0, 1fr);
+	}
 }
 </style>

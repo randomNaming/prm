@@ -19,7 +19,34 @@ export const TABLES = [
 	"companies",
 ];
 
+/**
+ * 保险丝：resetDatabase 会清空所连库的全部业务表。
+ * 2026-10-16 曾因对正式库误跑测试清空过一次数据（靠 binlog 才恢复）。
+ * 因此只允许连库名以 `_test` 结尾的专用测试库，其他库一律拒绝执行。
+ */
+function guardTestDatabase(): string {
+	const raw = process.env.DATABASE_URL ?? "";
+	let name = "";
+
+	try {
+		name = new URL(raw).pathname.replace(/^\//, "");
+	} catch {
+		// URL 解析失败按未配置处理，走下面的统一报错。
+	}
+
+	if (!name.endsWith("_test")) {
+		throw new Error(
+			`拒绝执行 resetDatabase：当前连接的库是「${name || "(无法解析)"}」。` +
+				"测试会清空全部数据，只允许连库名以 _test 结尾的专用测试库" +
+				"（例如 DATABASE_URL=mysql://.../crm_mini_test）。",
+		);
+	}
+
+	return name;
+}
+
 export async function resetDatabase(): Promise<void> {
+	guardTestDatabase();
 	const connection = await connectionPool().getConnection();
 
 	try {

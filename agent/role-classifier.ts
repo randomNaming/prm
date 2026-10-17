@@ -68,7 +68,6 @@ export const llmRoleClassifier: RoleClassifier = {
 				model: agentModel(),
 				prompt: instruction(input),
 				maxOutputTokens: CONFIG.agent.maxOutputTokens,
-				abortSignal: AbortSignal.timeout(CONFIG.agent.requestTimeoutMs),
 		maxRetries: CONFIG.agent.maxRetries,
 			});
 

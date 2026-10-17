@@ -305,6 +305,11 @@ describe("runIntake：抽字段 → 建档 → 写证据", () => {
 		expect(systemText).toContain("相处使用说明书");
 		expect(systemText).toContain("双轨");
 		expect(systemText).toContain("customer");
+		// V2 迭代：白描、短标签、性格光谱与家常弹药库的提取规范也要进系统提示。
+		expect(systemText).toContain("人物白描");
+		expect(systemText).toContain("short_tags");
+		expect(systemText).toContain("性格光谱");
+		expect(systemText).toContain("家常弹药库");
 	});
 
 	test("黄金案例：Michael Wake 三层冰山 + 双向承诺 + 追踪任务", async () => {
@@ -338,7 +343,9 @@ describe("runIntake：抽字段 → 建档 → 写证据", () => {
 		const contactId = first.contactId ?? "";
 		expect(contactId).toBeTruthy();
 
-		// 第二轮导入：状态修正 + 三层洞察 + 承诺账本 + 追踪任务。
+		// 第二轮导入：状态修正 + 三层洞察（V2 结构）+ 承诺账本 + 追踪任务。
+		// 注意：对同一字段的两次 record_fact 必须拆进不同的工具步骤 ——
+		// 同一步骤里的工具调用会被并行执行，两次并发写 address 的提交顺序不可控。
 		stub = await startStubModel([
 			{
 				content: "",
@@ -362,8 +369,13 @@ describe("runIntake：抽字段 → 建档 → 写证据", () => {
 							],
 						},
 					},
+				],
+			},
+			{
+				content: "",
+				toolCalls: [
 					{
-						// 认知刷新第二步：后半段核实后修正为 4GB —— 服务端应覆盖而非追加矛盾值。
+						// 认知刷新第二步：后半段核实后修正 —— 服务端应覆盖而非追加矛盾值。
 						name: "record_fact",
 						args: {
 							contact_id: contactId,
@@ -391,25 +403,89 @@ describe("runIntake：抽字段 → 建档 → 写证据", () => {
 							kind: "playbook",
 							payload: {
 								counterpart_type: "customer",
+								executive_summary:
+									"西澳珀斯的样品测试买家：被虚报尺寸坑出旧伤，极重规格与契约、只认眼见为实的证据；吃真诚共情、不吃折扣画饼——先给证据再谈感情。",
+								short_tags: [
+									"样品测试买家",
+									"免税客户",
+									"DDP包税条款",
+									"西澳珀斯",
+									"39mm小镜框基准",
+									"眼见为实型",
+								],
+								personality_spectrums: {
+									rigor_vs_flexibility: { score: 92, note: "规格差一点都要追问到底" },
+									transactional_vs_relational: { score: 75, note: "会体谅人，但事必须办好" },
+									trust_mechanism: { score: 95, note: "只认卡尺实测图与真人试戴视频" },
+								},
+								small_talk_playbook: {
+									strategy_advice:
+										"【熟化期·交付安抚】当前建议 40% 硬核物流真相 + 60% 真诚共情；待签收后切换为 30% 专业 + 70% 家常破冰。",
+									personal_hooks: [
+										{
+											category: "个人装备/习惯",
+											detail: "日常戴 Ray-Ban 39mm 太阳镜，小镜框是他的基准审美",
+											quote: "I wear Ray-Ban 39mm",
+											time: "2026-09-26 20:05",
+										},
+										{
+											category: "共同幽默梗",
+											detail: "调侃我方卡尺测量「手抖 shaky hands」，我方流汗拍照回图，他夸「Very handsome young man」",
+											quote: "shaky hands haha",
+											time: "2026-09-26 20:06",
+										},
+										{
+											category: "温情互动",
+											detail: "中秋节关心我方是否加班、有没有吃月饼",
+											quote: "Do you eat mooncake during the festival?",
+											time: "2026-09-25 21:30",
+										},
+										{
+											category: "地域生活体感",
+											detail: "身处西澳珀斯 Jandakot，对相隔 3500km 的东海岸墨尔本有距离痛感",
+											quote: "Melbourne is so far from Perth",
+											time: "2026-10-13 09:12",
+										},
+									],
+									ready_to_use_icebreaker: {
+										zh: "眼镜戴着还习惯吗？我记得你是 39mm 小框党，等这批到了，挑个周末戴去珀斯海边晒晒太阳。",
+										en: "How are the glasses treating you? I remembered you are a 39mm guy — once this batch lands, take them out for a weekend by the coast in Perth.",
+									},
+								},
+								business_value: [
+									{
+										title: "样品满意即批量复购",
+										attribution: "自述核验达标就会加单，LTV 完全取决于这一单的交付质量。",
+										confidence: 75,
+										evidence_quote: "I will buy more if they are everything you say",
+										evidence_time: "2026-09-27 11:41",
+									},
+								],
 								pain_points: [
 									{
-										text: "曾被其他供应商虚报尺寸坑过，极度缺乏安全感",
-										quote: "the supplier lied about the size. I hope you are honest",
-										time: "2026-09-25 21:25",
+										title: "被虚报尺寸坑过的旧伤",
+										attribution: "上一家供应商谎报尺寸让他退货扯皮，对口头保证已免疫，只认可验证的证据。",
+										confidence: 90,
+										evidence_quote: "the supplier lied about the size. I hope you are honest",
+										evidence_time: "2026-09-25 21:25",
 									},
 								],
 								sweet_spots: [
 									{
-										text: "眼见为实型：卡尺实测图与真人试戴视频能瞬间建立信任",
-										quote: "Thank you for the picture, this gives me confidence",
-										time: "2026-09-26 20:05",
+										title: "眼见为实瞬间建立信任",
+										attribution: "卡尺实测图与真人试戴视频恰好补上他缺的安全感，坦诚的活人感比话术有效。",
+										confidence: 85,
+										evidence_quote: "Thank you for the picture, this gives me confidence",
+										evidence_time: "2026-09-26 20:05",
 									},
 								],
 								taboos: [
 									{
-										text: "当前问题未解决前，极其反感用下一单折扣画饼敷衍",
-										quote: "A discount does not get me my glasses any sooner",
-										time: "2026-10-13 09:12",
+										title: "问题未解决时反感折扣画饼",
+										attribution: "延误期里他要的是货与时间线，折扣会被解读为敷衍与转移话题。",
+										confidence: 95,
+										evidence_quote: "A discount does not get me my glasses any sooner",
+										evidence_time: "2026-10-13 09:12",
 									},
 								],
 							},
@@ -449,6 +525,16 @@ describe("runIntake：抽字段 → 建档 → 写证据", () => {
 			{
 				content: "",
 				toolCalls: [
+					{
+						name: "record_promise",
+						args: {
+							contact_id: contactId,
+							direction: "ours",
+							title: "每日盯物流并在到达/派送时立即通知",
+							due_hint: "到达/派送时",
+							evidence: [{ kind: "wechat.chat", quote: "I will watch the tracking daily and tell you the moment it arrives", ref: "Michael@chat.txt", time: "2026-10-13 09:13" }],
+						},
+					},
 					{
 						name: "record_promise",
 						args: {
@@ -500,14 +586,14 @@ describe("runIntake：抽字段 → 建档 → 写证据", () => {
 					},
 				],
 			},
-			{ content: "已修正 Michael Wake 的地址认知，写入相处说明书与双轨温度，记录 4 条双向承诺，并建 1 条物流追踪任务。" },
+			{ content: "已修正 Michael Wake 的地址认知，写入相处说明书（含性格光谱与家常弹药库）与双轨温度，记录 5 条双向承诺，并建 1 条物流追踪任务。" },
 		]);
 		useAgentEnv(stub.baseUrl);
 
 		const second = await runIntake({ person: "Michael Wake", file: "chat-2.txt", text: GOLDEN_CHAT });
 		expect(second.contactId).toBe(contactId);
 		expect(second.counts.record_insight).toBe(2);
-		expect(second.counts.record_promise).toBe(4);
+		expect(second.counts.record_promise).toBe(5);
 
 		// 硬事实：认知刷新生效 —— 新值覆盖旧值，旧行 superseded，不留矛盾双值。
 		const [row] = await db().select().from(contacts).where(eq(contacts.id, contactId));
@@ -526,30 +612,59 @@ describe("runIntake：抽字段 → 建档 → 写证据", () => {
 		// 第二层 + 第三层：两版洞察落库，且带对象类型与双轨。
 		const insights = await latestInsights(contactId);
 		expect(insights).toHaveLength(2);
-		const playbook = insights.find((item) => item.kind === "playbook");
+		const playbookInsight = insights.find((item) => item.kind === "playbook");
 		const dualTrack = insights.find((item) => item.kind === "dual_track");
-		const playbookPayload = playbook?.payload as PlaybookPayload;
+		const playbookPayload = playbookInsight?.payload as PlaybookPayload;
 		expect(playbookPayload.counterpart_type).toBe("customer");
-		expect(playbookPayload.taboos[0]?.quote).toContain("A discount does not get me my glasses");
-		expect(playbookPayload.taboos[0]?.time).toBe("2026-10-13 09:12");
+
+		// V2 顶层：人物白描、短标签、性格光谱、家常弹药库。
+		expect(playbookPayload.executive_summary).toContain("珀斯");
+		expect(playbookPayload.executive_summary).toContain("旧伤");
+		expect(playbookPayload.short_tags.length).toBeGreaterThanOrEqual(4);
+		expect(playbookPayload.short_tags.every((tag) => tag.length <= 10)).toBe(true);
+		expect(playbookPayload.personality_spectrums?.trust_mechanism.score).toBe(95);
+		expect(playbookPayload.personality_spectrums?.rigor_vs_flexibility.score).toBe(92);
+
+		const smallTalk = playbookPayload.small_talk_playbook;
+		expect(smallTalk?.personal_hooks.length).toBeGreaterThanOrEqual(3);
+		expect(smallTalk?.personal_hooks[0]?.category).toBe("个人装备/习惯");
+		expect(smallTalk?.strategy_advice).toContain("40%");
+		expect(smallTalk?.ready_to_use_icebreaker?.zh).toContain("39mm");
+		expect(smallTalk?.ready_to_use_icebreaker?.en).toContain("Perth");
+
+		// V2 条目：短标题 + 深层归因 + 置信度 + 原话证据。
+		const taboo = playbookPayload.taboos[0];
+		expect(taboo?.title).toBe("问题未解决时反感折扣画饼");
+		expect(taboo?.attribution).toContain("敷衍");
+		expect(taboo?.confidence).toBe(95);
+		expect(taboo?.quote).toContain("A discount does not get me my glasses");
+		expect(taboo?.time).toBe("2026-10-13 09:12");
+
 		const dualPayload = dualTrack?.payload as DualTrackPayload;
 		expect(dualPayload.transaction_health.score).toBeLessThan(0);
 		expect(dualPayload.personal_trust.score).toBeGreaterThan(0);
 
-		// 双向承诺账本：2 条我方欠 + 2 条对方许，全部 open。
+		// 双向承诺账本：3 条我方欠 + 2 条对方许，全部 open。
 		const ledger = await allPromises(contactId);
-		expect(ledger).toHaveLength(4);
-		expect(ledger.filter((item) => item.direction === "ours")).toHaveLength(2);
+		expect(ledger).toHaveLength(5);
+		expect(ledger.filter((item) => item.direction === "ours")).toHaveLength(3);
 		expect(ledger.filter((item) => item.direction === "theirs")).toHaveLength(2);
 		expect(ledger.every((item) => item.status === "open")).toBe(true);
 		expect(ledger.find((item) => item.title.includes("8%"))?.dueHint).toBe("下一单");
 
-		// 承诺与任务自动进看板：我方欠的进「重要不紧急」，追踪任务带单号。
+		// 承诺与任务自动进看板：事务健康度 Frustrated 时，「每日盯物流并立即通知」
+		// 必须强制进第一象限（实机 Bug 的端到端复现）；远期折扣承诺保留在第二象限。
 		const boardResult = await board();
-		const promiseItem = boardResult.columns
+		const dailyWatch = boardResult.columns
+			.find((column) => column.quadrant === "urgent_important")
+			?.items.find((item) => item.type === "promise" && item.title.includes("每日盯物流"));
+		expect(dailyWatch).toBeTruthy();
+		expect(dailyWatch?.badge).toContain("Frustrated");
+
+		const discountPromise = boardResult.columns
 			.find((column) => column.quadrant === "important")
-			?.items.find((item) => item.type === "promise");
-		expect(promiseItem?.title).toContain("8%");
+			?.items.find((item) => item.type === "promise" && item.title.includes("8%"));
+		expect(discountPromise).toBeTruthy();
 
 		const taskRows = await db()
 			.select()

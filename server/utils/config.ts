@@ -29,7 +29,8 @@ export const CONFIG = {
 		// GLM 的思考（reasoning）也计入输出预算：8000 的时代大批次会以 finishReason=length 中途夭折。
 		// 已实测智谱端点接受 32000。
 		maxOutputTokens: 32000,
-		// 单次模型请求的硬超时：远端吊住请求时不能让一次研究把整个队列挂死。
+		// 单次模型 HTTP 请求的硬超时（agent/model.ts 的 limitedFetch 按请求计时）：
+		// 远端吊住请求时不能让一次研究把整个队列挂死。整轮多步分析的总时长不受它限制。
 		requestTimeoutMs: 5 * 60_000,
 		historyMessages: 40,
 		maxRetries: 2,
