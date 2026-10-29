@@ -15,6 +15,7 @@ import type {
 	FieldDef,
 	McpOverview,
 	Page,
+	PublicHolidayResult,
 	SearchHit,
 	QueueStatus,
 } from "~/types/domain";
@@ -126,6 +127,9 @@ export function useApi() {
 			$fetch<{ conversations: Conversation[] }>("/api/conversations", { query }),
 		messages: (conversationId: string) =>
 			$fetch<{ messages: ChatMessage[] }>("/api/conversations", { query: { conversationId } }),
+
+		publicHolidays: (country: string, year: number) =>
+			$fetch<PublicHolidayResult>("/api/public-holidays", { query: { country, year } }),
 
 		status: () => $fetch<QueueStatus>("/api/status"),
 

@@ -8,7 +8,7 @@ export default defineNuxtConfig({
 		defaultLocale: "zh-cn",
 	},
 
-	css: ["~/assets/css/main.css"],
+	css: ["~/assets/css/main.css", "~/assets/css/contact.css"],
 
 	devtools: { enabled: false },
 

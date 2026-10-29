@@ -1,9 +1,12 @@
 :root {
-	--crm-brand: #006b4f;
-	--crm-ink: #1f2328;
-	--crm-muted: #6b7280;
-	--crm-line: #e5e7eb;
-	--crm-surface: #f7f8fa;
+	--crm-brand: #2563eb;
+	--crm-brand-soft: #edf3ff;
+	--crm-ink: #1c2430;
+	--crm-body: #39424f;
+	--crm-muted: #7b8494;
+	--crm-faint: #9aa3b2;
+	--crm-line: #e8ebef;
+	--crm-surface: #f4f5f7;
 }
 
 body {
@@ -14,9 +17,9 @@ body {
 }
 
 .crm-page {
-	max-width: 1120px;
+	max-width: 1160px;
 	margin: 0 auto;
-	padding: 20px 16px 48px;
+	padding: 0;
 }
 
 .crm-section {
@@ -36,8 +39,9 @@ body {
 .crm-card {
 	background: #fff;
 	border: 1px solid var(--crm-line);
-	border-radius: 8px;
+	border-radius: 11px;
 	padding: 16px;
+	box-shadow: 0 1px 2px rgba(16, 24, 40, 0.035);
 }
 
 .crm-grid {

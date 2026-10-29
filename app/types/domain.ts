@@ -706,3 +706,25 @@ export type SearchHit = {
 	label: string;
 	detail: string;
 };
+
+/** 一条公众假期：date 为 YYYY-MM-DD，本地名保留英文原样。 */
+export type PublicHoliday = {
+	date: string;
+	name: string;
+	localName: string;
+};
+
+/**
+ * 联系人页日历卡的数据。
+ *
+ * 假期来自 Nager.Date 公共接口，服务端缓存半天。取不到时返回 source = unavailable
+ * 与一句人话原因，前端渲染一张空日历占位，不弹错 —— 日历是锦上添花，不该挡住整页。
+ */
+export type PublicHolidayResult = {
+	country: string;
+	code: string | null;
+	year: number;
+	holidays: PublicHoliday[];
+	source: "nager" | "unavailable";
+	reason: string | null;
+};
