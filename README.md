@@ -329,14 +329,35 @@ crm-mini/
 | `bun test tests` | 运行 CRM 的自动化验收测试（**会清空所连库的全部表**，见下节） |
 | `bash scripts/backup.sh` | mysqldump 在线热备，默认保留 14 天 |
 
-## 测试与数据（只有一个库）
+## 多环境数据库
 
-这个项目**只有一份数据库**：`.env` 里 `DATABASE_URL` 指向的 `crm_mini`。本地这台机器既是开发环境也是测试环境，库里攒的数据将来会**整库拷贝**到服务器作为生产数据迁移过去——所以不要再另建独立的测试库，也不要改 `DATABASE_URL` 去连别的库，免得两份数据越用越乱。
+三个库，彼此隔离，靠 `DATABASE_URL` 切换：
 
-`tests/` 里的测试直接对应需求文档的验收项，但要注意：**跑测试会把它连上的那个库里的表全部清空（TRUNCATE）**。因此在当前这套「数据就是未来的生产数据」的用法下：
+| 库 | 位置 | 用途 | 连它的账号 |
+| --- | --- | --- | --- |
+| `prm_test` | NAS | 开发与验收测试，结构随便改、数据随便清 | `prm_test` |
+| `prm` | 云服务器 | 正式库，只通过迁移脚本改结构 | 应用 `prm_app` / 迁移 `prm_migrate` / 本地只读 `prm_ro` |
+| `prm_backup` | NAS | 服务器正式库的定期备份落点 | `prm_restore` |
 
-- 库里已经攒了真实数据时，**不要跑 `bun test`**；
-- 确实要跑验收测试，要么等全新环境初始化时跑一遍再开始攒数据，要么先 `bash scripts/backup.sh` 备份、确认数据可弃再跑；
+账号权限不在应用仓库管理，按运维约定分配。关键约束：
+
+- **应用运行时账号没有任何 DDL 权限**，写错代码也改不动正式库结构；
+- **迁移账号不给 DROP**，而 MySQL 的 `TRUNCATE TABLE` 需要 DROP 权限，所以正式库里 TRUNCATE / DROP TABLE 物理上执行不了；
+- 本地调试连正式库一律用只读账号，只有 SELECT。
+
+改结构的唯一入口是迁移脚本，测试库和正式库各自跑一次同一条命令，靠 `crm_migrations` 账本去重：
+
+```bash
+bun run db:migrate                     # 测试库直接跑
+node scripts/migrate.mjs --confirm-prod  # 正式库需显式确认，先做快照
+```
+
+`scripts/migrate.mjs` 会扫描每个迁移文件，遇到 `DROP` / `TRUNCATE` / `DELETE FROM` / `ALTER ... DROP COLUMN` 默认拒绝，必须在文件顶部写明 `-- @allow-destructive: 原因` 并加 `--allow-destructive` 才放行。
+
+### 测试会清空所连的库
+
+`tests/` 里的测试直接对应需求文档的验收项，但**跑测试会把连上的那个库里的表全部 TRUNCATE**。`tests/helpers.ts` 的保险丝 `guardTestDatabase()` 强制库名必须以 `_test` 结尾，否则直接抛错拒绝执行——所以`bun test` 只能落在 `prm_test`，碰不到正式库。
+
 - 测试会拉起构建产物（`.output/server/index.mjs`），所以先跑一次 `bun run build`。
 
 | 测试文件 | 覆盖的验收 |

@@ -9,6 +9,9 @@ dist
 *.log
 .bun-cache
 
+# 数据库导出文件：含真实业务数据，禁止入库
+*.dump.sql
+
 # WorkBuddy 工具的本地记忆：个人笔记，不属于应用仓库，且历史上曾误存过密码
 .workbuddy/
 
