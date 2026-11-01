@@ -14,6 +14,7 @@
     "typecheck": "nuxt typecheck",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
+    "deploy": "node scripts/deploy/push.mjs",
     "test": "bun test tests"
   },
   "dependencies": {

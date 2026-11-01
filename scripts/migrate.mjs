@@ -13,6 +13,8 @@ loadDotenv({ path: join(root, ".env"), quiet: true });
 const argv = process.argv.slice(2);
 const allowDestructive = argv.includes("--allow-destructive");
 const confirmProd = argv.includes("--confirm-prod");
+// 只报告不执行：部署脚本用它判断「代码更新了但库还没跟上」，永远不动表结构
+const checkOnly = argv.includes("--check");
 
 const url = process.env.DATABASE_URL?.trim();
 if (!url) {
@@ -31,7 +33,7 @@ if (!databaseName) {
 // 只有测试库 / 备份库允许直接跑；正式库必须显式确认。
 const isSafeTarget = databaseName.endsWith("_test") || databaseName.endsWith("_backup");
 
-if (!isSafeTarget && !confirmProd) {
+if (!isSafeTarget && !confirmProd && !checkOnly) {
 	console.error(
 		[
 			`当前目标是正式库「${databaseName}」，迁移会改动生产表结构。`,
@@ -123,6 +125,22 @@ const applied = new Set(appliedRows.map((row) => row.name));
 const files = readdirSync(migrationsDir)
 	.filter((name) => name.endsWith(".sql"))
 	.sort();
+
+// --check：只比对账本，列出尚未应用的迁移，然后退出。有未应用的返回 1。
+if (checkOnly) {
+	const pending = files.filter((file) => !applied.has(file));
+
+	if (pending.length === 0) {
+		console.log(`结构已同步：${files.length} 个迁移全部已应用。`);
+	} else {
+		console.log(`有 ${pending.length} 个迁移尚未应用到「${databaseName}」：`);
+		for (const file of pending) console.log(`  - ${file}`);
+		console.log("\n正式库需人工确认备份可用后执行：node scripts/migrate.mjs --confirm-prod");
+	}
+
+	await connection.end();
+	process.exit(pending.length === 0 ? 0 : 1);
+}
 
 for (const file of files) {
 	if (applied.has(file)) {

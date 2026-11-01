@@ -29,129 +29,144 @@ export type ListQuery = {
 	relationship?: string;
 };
 
-export function useApi() {
-	return {
-		dashboard: () => $fetch<Dashboard>("/api/dashboard"),
+type FetchOptions = NonNullable<Parameters<typeof $fetch>[1]>;
 
-		board: () => $fetch<Board>("/api/board"),
+export function useApi() {
+	// SSR 时浏览器 Cookie 不会自动带给同进程的内部 /api 请求，必须显式转发，
+	// 否则登录后服务端取数仍然 401、页面直接空白。
+	const forwarded = import.meta.server ? useRequestHeaders(["cookie"]) : undefined;
+
+	const request = <T>(path: string, options: Record<string, unknown> = {}) =>
+		$fetch<T>(path, {
+			...options,
+			headers: {
+				...((options.headers as Record<string, string> | undefined) ?? {}),
+				...forwarded,
+			},
+		} as FetchOptions);
+
+	return {
+		dashboard: () => request<Dashboard>("/api/dashboard"),
+
+		board: () => request<Board>("/api/board"),
 		pinBoardItem: (body: {
 			type: string;
 			id: string;
 			quadrant: string;
 			inferred: string;
 		}) =>
-			$fetch<{ ok: boolean; reason: string; pinned: boolean }>("/api/board/pin", {
+			request<{ ok: boolean; reason: string; pinned: boolean }>("/api/board/pin", {
 				method: "POST",
 				body,
 			}),
 
 		listContacts: (query: ListQuery = {}) =>
-			$fetch<Page<ContactListItem>>("/api/contacts", { query }),
-		contactDetail: (id: string) => $fetch<ContactDetail>(`/api/contacts/${id}`),
+			request<Page<ContactListItem>>("/api/contacts", { query }),
+		contactDetail: (id: string) => request<ContactDetail>(`/api/contacts/${id}`),
 		createContact: (body: Record<string, unknown>) =>
-			$fetch<{ contact: Contact }>("/api/contacts", { method: "POST", body }),
+			request<{ contact: Contact }>("/api/contacts", { method: "POST", body }),
 		updateContact: (id: string, body: Record<string, unknown>) =>
-			$fetch<{ contact: Contact }>(`/api/contacts/${id}`, { method: "PUT", body }),
+			request<{ contact: Contact }>(`/api/contacts/${id}`, { method: "PUT", body }),
 		archiveContact: (id: string) =>
-			$fetch<{ archived: boolean }>(`/api/contacts/${id}`, { method: "DELETE" }),
+			request<{ archived: boolean }>(`/api/contacts/${id}`, { method: "DELETE" }),
 		restoreContact: (id: string) =>
-			$fetch<{ restored: boolean }>(`/api/contacts/${id}/restore`, { method: "POST" }),
+			request<{ restored: boolean }>(`/api/contacts/${id}/restore`, { method: "POST" }),
 
 		listCompanies: (query: ListQuery = {}) =>
-			$fetch<Page<CompanyListItem>>("/api/companies", { query }),
-		companyDetail: (id: string) => $fetch<CompanyDetail>(`/api/companies/${id}`),
+			request<Page<CompanyListItem>>("/api/companies", { query }),
+		companyDetail: (id: string) => request<CompanyDetail>(`/api/companies/${id}`),
 		createCompany: (body: Record<string, unknown>) =>
-			$fetch<{ company: Company }>("/api/companies", { method: "POST", body }),
+			request<{ company: Company }>("/api/companies", { method: "POST", body }),
 		updateCompany: (id: string, body: Record<string, unknown>) =>
-			$fetch<{ company: Company }>(`/api/companies/${id}`, { method: "PUT", body }),
+			request<{ company: Company }>(`/api/companies/${id}`, { method: "PUT", body }),
 		archiveCompany: (id: string) =>
-			$fetch<{ archived: boolean }>(`/api/companies/${id}`, { method: "DELETE" }),
+			request<{ archived: boolean }>(`/api/companies/${id}`, { method: "DELETE" }),
 		restoreCompany: (id: string) =>
-			$fetch<{ restored: boolean }>(`/api/companies/${id}/restore`, { method: "POST" }),
+			request<{ restored: boolean }>(`/api/companies/${id}/restore`, { method: "POST" }),
 		companyOptions: (q = "") =>
-			$fetch<{ items: Company[] }>("/api/company-options", { query: { q } }),
+			request<{ items: Company[] }>("/api/company-options", { query: { q } }),
 
 		listDeals: (query: ListQuery & { stage?: string } = {}) =>
-			$fetch<Page<Deal>>("/api/deals", { query }),
-		dealDetail: (id: string) => $fetch<DealDetail>(`/api/deals/${id}`),
+			request<Page<Deal>>("/api/deals", { query }),
+		dealDetail: (id: string) => request<DealDetail>(`/api/deals/${id}`),
 		createDeal: (body: Record<string, unknown>) =>
-			$fetch<{ deal: Deal }>("/api/deals", { method: "POST", body }),
+			request<{ deal: Deal }>("/api/deals", { method: "POST", body }),
 		updateDeal: (id: string, body: Record<string, unknown>) =>
-			$fetch<{ deal: Deal }>(`/api/deals/${id}`, {
+			request<{ deal: Deal }>(`/api/deals/${id}`, {
 				method: "POST",
 				body: { action: "edit", deal: body },
 			}),
 		changeDealStage: (id: string, stage: string) =>
-			$fetch<{ deal: Deal }>(`/api/deals/${id}`, {
+			request<{ deal: Deal }>(`/api/deals/${id}`, {
 				method: "POST",
 				body: { action: "stage", stage },
 			}),
 		archiveDeal: (id: string) =>
-			$fetch<{ archived: boolean }>(`/api/deals/${id}`, {
+			request<{ archived: boolean }>(`/api/deals/${id}`, {
 				method: "POST",
 				body: { action: "archive" },
 			}),
 
 		listActivities: (query: { contactId?: string; companyId?: string; dealId?: string } = {}) =>
-			$fetch<Page<Activity>>("/api/activities", { query }),
+			request<Page<Activity>>("/api/activities", { query }),
 		createActivity: (body: Record<string, unknown>) =>
-			$fetch<{ activity: Activity }>("/api/activities", { method: "POST", body }),
+			request<{ activity: Activity }>("/api/activities", { method: "POST", body }),
 		decideActivity: (id: string, action: "complete" | "reopen") =>
-			$fetch<{ ok: boolean }>("/api/activity-decision", { method: "POST", body: { id, action } }),
+			request<{ ok: boolean }>("/api/activity-decision", { method: "POST", body: { id, action } }),
 
-		search: (q: string) => $fetch<{ query: string; hits: SearchHit[] }>("/api/search", { query: { q } }),
+		search: (q: string) => request<{ query: string; hits: SearchHit[] }>("/api/search", { query: { q } }),
 
 		decideFact: (
 			id: string,
 			action: "accept" | "reject" | "revert",
 			subject: "contact" | "company" = "contact",
 		) =>
-			$fetch<{ ok: boolean; reason: string }>("/api/fact-decision", {
+			request<{ ok: boolean; reason: string }>("/api/fact-decision", {
 				method: "POST",
 				body: { id, action, subject },
 			}),
 
 		markArchivesViewed: (contactId: string) =>
-			$fetch<{ ok: boolean; marked: number }>("/api/intake-viewed", {
+			request<{ ok: boolean; marked: number }>("/api/intake-viewed", {
 				method: "POST",
 				body: { contactId },
 			}),
 
 		decidePromise: (id: string, action: "fulfilled" | "cancelled", note?: string) =>
-			$fetch<{ ok: boolean; reason: string }>("/api/promise-decision", {
+			request<{ ok: boolean; reason: string }>("/api/promise-decision", {
 				method: "POST",
 				body: { id, action, note },
 			}),
 
 		conversations: (query: { contactId?: string; companyId?: string; dealId?: string } = {}) =>
-			$fetch<{ conversations: Conversation[] }>("/api/conversations", { query }),
+			request<{ conversations: Conversation[] }>("/api/conversations", { query }),
 		messages: (conversationId: string) =>
-			$fetch<{ messages: ChatMessage[] }>("/api/conversations", { query: { conversationId } }),
+			request<{ messages: ChatMessage[] }>("/api/conversations", { query: { conversationId } }),
 
 		publicHolidays: (country: string, year: number) =>
-			$fetch<PublicHolidayResult>("/api/public-holidays", { query: { country, year } }),
+			request<PublicHolidayResult>("/api/public-holidays", { query: { country, year } }),
 
-		status: () => $fetch<QueueStatus>("/api/status"),
+		status: () => request<QueueStatus>("/api/status"),
 
 		fields: (scope: "contact" | "company") =>
-			$fetch<{ fields: FieldDef[] }>("/api/fields", { query: { scope } }),
+			request<{ fields: FieldDef[] }>("/api/fields", { query: { scope } }),
 		decideField: (id: string, action: "accept" | "reject") =>
-			$fetch<{ ok: boolean; reason: string }>("/api/field-decision", {
+			request<{ ok: boolean; reason: string }>("/api/field-decision", {
 				method: "POST",
 				body: { id, action },
 			}),
 
 		research: (subject: "contact" | "company", id: string) =>
-			$fetch<{ queued: boolean; taskId: string }>("/api/research", {
+			request<{ queued: boolean; taskId: string }>("/api/research", {
 				method: "POST",
 				body: { subject, id },
 			}),
 		cancelResearch: (subject: "contact" | "company", id: string) =>
-			$fetch<{ ok: boolean; cancelled: number; reason: string }>("/api/research-cancel", {
+			request<{ ok: boolean; cancelled: number; reason: string }>("/api/research-cancel", {
 				method: "POST",
 				body: { subject, id },
 			}),
 
-		mcp: () => $fetch<McpOverview>("/api/mcp"),
+		mcp: () => request<McpOverview>("/api/mcp"),
 	};
 }

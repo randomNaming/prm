@@ -5,7 +5,7 @@ const api = useApi();
 const route = useRoute();
 
 const { data: status, refresh } = await useAsyncData<QueueStatus | null>("queue-status", () =>
-	$fetch<QueueStatus>("/api/status").catch(() => null),
+	api.status().catch(() => null),
 );
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -290,6 +290,8 @@ const contactNav = computed(() => {
 					</div>
 				</div>
 			</el-popover>
+
+			<a href="/auth/logout" class="sidebar__logout">退出登录</a>
 		</aside>
 
 		<main class="main">
@@ -453,6 +455,20 @@ const contactNav = computed(() => {
 
 .sidebar__foot.is-clickable {
 	cursor: pointer;
+}
+
+.sidebar__logout {
+	display: block;
+	flex: none;
+	padding: 10px;
+	font-size: 12px;
+	color: #9aa3b2;
+	text-decoration: none;
+	border-top: 1px solid #f0f2f6;
+}
+
+.sidebar__logout:hover {
+	color: #39424f;
 }
 
 .main {

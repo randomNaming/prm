@@ -412,6 +412,14 @@ bun test tests/lists.test.ts
 | ② 内网 | `HOST=<内网 IP>`，只对可信网段开放 |
 | ③ 公网 | **必须**前置反向代理并加认证（Basic Auth 或更强）。进入前单独评审 |
 
+云服务器（宝塔面板）的完整步骤见 [docs/宝塔部署教程.md](docs/宝塔部署教程.md)。
+服务器内存不足以跑 Nuxt 构建，所以构建在本地：`bun run build` 后把 `.output` 上传到服务器、
+重启服务即可（宝塔文件管理器拖拽也行）。想省事可以用 `bun run deploy`
+（[scripts/deploy/push.mjs](scripts/deploy/push.mjs)）自动完成上传和重启；
+它**不执行数据库迁移**，只有显式加 `--migrate` 才会动表结构。
+
+下面是手工部署时的最小示例。
+
 systemd 常驻示例：
 
 ```ini
@@ -445,6 +453,28 @@ location / {
 ```
 
 `proxy_buffering off` 是必须的，否则流式回答会攒到最后一次性吐出。
+
+## 访问控制（天权 SSO）
+
+生态内不建账号，身份统一由天权（megrez）签发。本项目只做三件事：
+
+1. 没登录 → 跳 `/auth/login` → 天权登录（账号 + 动态码）→ 授权确认 → 带一次性 code 回来；
+2. `/auth/callback` 在服务端用 `client_secret` 换 JWT，写进本站 HttpOnly Cookie；
+3. 每个请求本地验签（`server/utils/megrez.ts`），**不回调天权**，天权挂了已登录会话照常可用。
+
+配置（`.env`，四项齐全才启用）：
+
+```dotenv
+MEGREZ_BASE=https://auth.example.com
+MEGREZ_CLIENT_ID=app_xxx
+MEGREZ_CLIENT_SECRET=xxx
+MEGREZ_REDIRECT_URI=https://crm.example.com/auth/callback
+```
+
+- `MEGREZ_REDIRECT_URI` 必须与天权后台登记的回调地址**完全一致**
+- `client_secret` 只放服务端，绝不进前端
+- 不填这四项时鉴权关闭，与接入前行为一致（本地开发默认如此）
+- 退出登录只清本站 Cookie；天权的后台会话（默认 12 小时）需要去天权后台退出
 
 ## 备份与恢复
 

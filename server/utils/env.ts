@@ -8,6 +8,14 @@ export type AppEnv = {
 	zaiModel: string;
 	host: string;
 	port: string;
+	/** 天权（megrez）身份中心地址，例如 http://127.0.0.1:8787 */
+	megrezBase: string;
+	/** 在天权后台「接入项目」登记后拿到的 client_id */
+	megrezClientId: string;
+	/** 同上，client_secret 只放服务端环境变量 */
+	megrezClientSecret: string;
+	/** 必须与天权后台登记的回调地址完全一致 */
+	megrezRedirectUri: string;
 };
 
 const DEFAULT_ZAI_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4";
@@ -32,6 +40,10 @@ export function env(): AppEnv {
 		zaiModel: process.env.ZAI_MODEL?.trim() || DEFAULT_ZAI_MODEL,
 		host: process.env.HOST?.trim() || "127.0.0.1",
 		port: process.env.PORT?.trim() || "3000",
+		megrezBase: (process.env.MEGREZ_BASE?.trim() || "").replace(/\/+$/, ""),
+		megrezClientId: process.env.MEGREZ_CLIENT_ID?.trim() || "",
+		megrezClientSecret: process.env.MEGREZ_CLIENT_SECRET?.trim() || "",
+		megrezRedirectUri: process.env.MEGREZ_REDIRECT_URI?.trim() || "",
 	};
 }
 
