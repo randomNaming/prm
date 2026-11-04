@@ -1,23 +1,21 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, inArray, isNull, lte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { createError, type H3Error } from "h3";
 import { generateText, type ModelMessage } from "ai";
 import { extractJsonObject } from "../../agent/json";
 import { visionModel } from "../../agent/model";
 import { CARD_VISION_SYSTEM } from "../../agent/prompts";
-import type { Contact } from "../../app/types/domain";
-import { cardDrafts, companies, contacts } from "../db/schema";
+import type { Evidence } from "../../app/types/domain";
+import { contacts } from "../db/schema";
 import { CONFIG } from "./config";
-import { contactKey, createContact, getContact, updateContact } from "./contacts";
 import { ensureCompany } from "./companies";
+import { ensureContact } from "./contacts";
 import { db } from "./db";
-import { agentCapability, env, visionCapability } from "./env";
-import { newId, nowMs } from "./ids";
-import { enqueueResearch } from "./queue";
-import type { ContactInput } from "./validate";
-
-type CardDraftRow = typeof cardDrafts.$inferSelect;
+import { env, visionCapability } from "./env";
+import { recordFact, type RecordFactResult } from "./facts";
+import { proposeField } from "./fields";
+import { nowMs } from "./ids";
 
 export const CARD_FIELD_KEYS = [
 	"name",
@@ -34,8 +32,6 @@ export type CardFieldKey = (typeof CARD_FIELD_KEYS)[number];
 /** 字段白名单：缺失一律空字符串，禁止 null、禁止编造。 */
 export type CardFields = Record<CardFieldKey, string>;
 
-export const CARD_STATUSES = ["pending", "confirmed", "discarded", "failed"] as const;
-
 const FIELD_TEXT = (max: number) => z.string().trim().max(max).default("");
 
 export const cardFieldsSchema = z.object({
@@ -49,9 +45,19 @@ export const cardFieldsSchema = z.object({
 	address: FIELD_TEXT(CONFIG.text.maxFieldLength),
 });
 
-/** 模型回包形状：解析失败或键缺失都容错成空值，宁可字段全空也不编造。 */
+/** 8 个固定字段之外的信息：模型提议，确认后成为字段（field_defs.sample_value 自带值）。 */
+export const cardExtraSchema = z.object({
+	label: z.string().trim().min(1).max(24),
+	value: z.string().trim().min(1).max(CONFIG.text.maxNoteLength),
+	evidence: z.string().trim().max(60).default(""),
+	confidence: z.number().min(0).max(1).default(0),
+});
+
+export type CardExtra = z.infer<typeof cardExtraSchema>;
+
 const cardModelOutputSchema = z.object({
 	fields: cardFieldsSchema.nullish().catch(emptyCardFields()),
+	extras: z.array(cardExtraSchema).max(8).nullish().catch([]),
 	evidence: z.record(z.string(), z.string()).nullish().catch({}),
 });
 
@@ -63,10 +69,6 @@ export function emptyCardFields(): CardFields {
 
 function badRequestCard(message: string): H3Error {
 	return createError({ statusCode: 400, statusMessage: message, data: { code: "bad_request" } });
-}
-
-function notFoundCard(message: string): H3Error {
-	return createError({ statusCode: 404, statusMessage: message, data: { code: "draft_not_found" } });
 }
 
 function tooLargeCard(message: string): H3Error {
@@ -124,7 +126,7 @@ export function parseCardImages(raw: unknown): CardImage[] {
 	return images;
 }
 
-/** 多图判重键：各图 sha256 拼接后再 sha256，同一组图（无论张数）判重一致。 */
+/** 多图判重键：各图 sha256 拼接后再 sha256；只用于证据引用，不再单独建表。 */
 export function imageHashOf(images: CardImage[]): string {
 	const perImage = images.map((image) => createHash("sha256").update(image.buffer).digest("hex"));
 
@@ -174,23 +176,6 @@ export function checkCardRateLimit(deviceId: string): void {
 	globalWindow.push(now);
 }
 
-// ---------- 识别 ----------
-
-export type RecognizedCard = {
-	fields: CardFields;
-	evidence: Record<string, string>;
-	rawText: string;
-	model: string;
-	ms: number;
-};
-
-function normalizeCardFields(value: unknown): CardFields {
-	const parsed = cardFieldsSchema.safeParse(value ?? {});
-	if (!parsed.success) return emptyCardFields();
-
-	return { ...emptyCardFields(), ...parsed.data };
-}
-
 function sanitizeEvidence(raw: Record<string, string>): Record<string, string> {
 	const out: Record<string, string> = {};
 
@@ -202,11 +187,21 @@ function sanitizeEvidence(raw: Record<string, string>): Record<string, string> {
 	return out;
 }
 
-function toEvidenceMap(value: unknown): Record<string, string> {
-	if (!value || typeof value !== "object") return {};
+function normalizeCardFields(value: unknown): CardFields {
+	const parsed = cardFieldsSchema.safeParse(value ?? {});
+	if (!parsed.success) return emptyCardFields();
 
-	return sanitizeEvidence(value as Record<string, string>);
+	return { ...emptyCardFields(), ...parsed.data };
 }
+
+export type RecognizedCard = {
+	fields: CardFields;
+	extras: CardExtra[];
+	evidence: Record<string, string>;
+	rawText: string;
+	model: string;
+	ms: number;
+};
 
 /** 视觉模型看图抽字段：多模态消息（图片 + 文字）→ generateText → 宽容解析。 */
 export async function recognizeCard(input: {
@@ -245,7 +240,7 @@ export async function recognizeCard(input: {
 		model: visionModel(),
 		system: CARD_VISION_SYSTEM,
 		messages: [message],
-		// 失败即落 failed 草稿 + 502，由 App 重传重试；不做 SDK 层重试，避免 45 秒超时翻倍。
+		// 失败由 App 重传重试；不做 SDK 层重试，避免 45 秒超时翻倍。
 		maxRetries: 0,
 	});
 
@@ -253,6 +248,7 @@ export async function recognizeCard(input: {
 
 	return {
 		fields: normalizeCardFields(parsed.success ? parsed.data.fields : {}),
+		extras: parsed.success ? (parsed.data.extras ?? []) : [],
 		evidence: sanitizeEvidence(parsed.success ? parsed.data.evidence ?? {} : {}),
 		rawText: result.text.slice(0, CONFIG.card.maxRawTextChars),
 		model: capability.model,
@@ -260,140 +256,42 @@ export async function recognizeCard(input: {
 	};
 }
 
-// ---------- 去重与合并（识别阶段按「电话归一化 → 邮箱 → 姓名+公司」匹配） ----------
+// ---------- 落库：与聊天同步完全同一条路径 ----------
 
-async function matchContactId(fields: CardFields): Promise<string | null> {
-	const phone = fields.phone.trim();
-	if (phone) {
-		const [direct] = await db()
-			.select({ id: contacts.id })
-			.from(contacts)
-			.where(and(eq(contacts.phone, phone), isNull(contacts.archivedAt)))
-			.limit(1);
-		if (direct) return direct.id;
+/** 固定字段 → recordFact 的字段名（用字段表里的中文标签，recordFact 会做 key/别名匹配）。 */
+const FACT_FIELDS: { key: keyof CardFields; label: string }[] = [
+	{ key: "title", label: "职位" },
+	{ key: "phone", label: "电话" },
+	{ key: "email", label: "邮箱" },
+	{ key: "wechat", label: "微信号" },
+	{ key: "country", label: "国家" },
+	{ key: "address", label: "地址" },
+];
 
-		// 库里可能存成 138-0013-8000 这类写法，做一次归一化全表比对。
-		const normalized = contactKey(phone);
-		const candidates = await db()
-			.select({ id: contacts.id, phone: contacts.phone })
-			.from(contacts)
-			.where(isNull(contacts.archivedAt));
-
-		const loose = candidates.find(
-			(row) => row.phone !== null && contactKey(row.phone) === normalized,
-		);
-		if (loose) return loose.id;
-	}
-
-	const email = fields.email.trim();
-	if (email) {
-		const [hit] = await db()
-			.select({ id: contacts.id })
-			.from(contacts)
-			.where(and(eq(contacts.email, email), isNull(contacts.archivedAt)))
-			.limit(1);
-		if (hit) return hit.id;
-	}
-
-	const name = fields.name.trim();
-	const company = fields.company.trim();
-	if (name && company) {
-		const [hit] = await db()
-			.select({ id: contacts.id })
-			.from(contacts)
-			.innerJoin(companies, eq(companies.id, contacts.companyId))
-			.where(and(eq(contacts.firstName, name), eq(companies.name, company), isNull(contacts.archivedAt)))
-			.limit(1);
-		if (hit) return hit.id;
-	}
-
-	return null;
-}
-
-// ---------- 草稿的增查改与清理 ----------
-
-export type CardDraftDto = {
-	id: string;
-	deviceId: string;
-	status: string;
-	fields: CardFields;
-	evidence: Record<string, string>;
-	rawText: string;
-	imageHash: string | null;
-	matchedContactId: string | null;
-	contactId: string | null;
-	createdAt: number;
-	confirmedAt: number | null;
-	decidedNote: string | null;
+export type CardScanResult = {
+	ok: true;
+	contactId: string;
+	created: boolean;
+	matchedBy: string | null;
+	facts: RecordFactResult[];
+	proposals: { id: string; label: string; status: string; outcome: string; value: string }[];
+	extras: CardExtra[];
+	meta: { model: string; ms: number; imageBytes: number; imageHash: string };
 };
-
-export function toCardDraftDto(row: CardDraftRow): CardDraftDto {
-	return {
-		id: row.id,
-		deviceId: row.deviceId,
-		status: row.status,
-		fields: {
-			name: row.name ?? "",
-			company: row.company ?? "",
-			title: row.title ?? "",
-			phone: row.phone ?? "",
-			email: row.email ?? "",
-			wechat: row.wechat ?? "",
-			country: row.country ?? "",
-			address: row.address ?? "",
-		},
-		evidence: toEvidenceMap(row.evidence),
-		rawText: row.rawText ?? "",
-		imageHash: row.imageHash,
-		matchedContactId: row.matchedContactId,
-		contactId: row.contactId,
-		createdAt: row.createdAt,
-		confirmedAt: row.confirmedAt,
-		decidedNote: row.decidedNote,
-	};
-}
-
-async function getCardDraftRow(id: string): Promise<CardDraftRow | null> {
-	const [row] = await db().select().from(cardDrafts).where(eq(cardDrafts.id, id)).limit(1);
-
-	return row ?? null;
-}
 
 /**
- * 草稿统一保留 1 天：pending 超期自动作废；confirmed/discarded/failed 超期清理
- * （数据已进 contacts，草稿即操作流水，也不需要了）。在每次读写入口惰性触发。
+ * 名片识别即落库：
+ * 1) 按 手机/微信/姓名 匹配或新建联系人（ensureContact，和聊天导入同一个入口）
+ * 2) 固定字段逐条 recordFact（字段空→applied；已有人工值→proposed）
+ * 3) 额外信息逐条 proposeField（值存在 sample_value，人同意时才写入）
+ * 没有草稿表，没有第二份数据。
  */
-export async function sweepCardDrafts(): Promise<void> {
-	const floor = nowMs() - CONFIG.card.retentionMs;
-
-	await db()
-		.update(cardDrafts)
-		.set({ status: "discarded", decidedNote: "超过 1 天未确认，自动丢弃。" })
-		.where(and(eq(cardDrafts.status, "pending"), lte(cardDrafts.createdAt, floor)));
-
-	await db()
-		.delete(cardDrafts)
-		.where(
-			and(
-				inArray(cardDrafts.status, ["confirmed", "discarded", "failed"]),
-				lte(cardDrafts.createdAt, floor),
-			),
-		);
-}
-
-export type CardIntakeResult = {
-	ok: true;
-	draft: CardDraftDto;
-	meta: { model: string; ms: number; imageBytes: number; imageHash: string; deduped: boolean };
-};
-
-/** 收图并识别：校验 → 哈希判重 → 限流 → 调视觉模型 → 落草稿（失败也落 failed 行）。 */
 export async function intakeCard(input: {
 	deviceId: string;
 	images: unknown;
 	text?: string | null;
 	locale?: string | null;
-}): Promise<CardIntakeResult> {
+}): Promise<CardScanResult> {
 	const capability = visionCapability();
 	if (!capability.enabled) {
 		throw createError({
@@ -403,255 +301,103 @@ export async function intakeCard(input: {
 		});
 	}
 
-	await sweepCardDrafts();
+	checkCardRateLimit(input.deviceId);
 
 	const images = parseCardImages(input.images);
 	const hash = imageHashOf(images);
 	const totalBytes = images.reduce((sum, image) => sum + image.bytes, 0);
+	const recognized = await recognizeCard({ images, text: input.text, locale: input.locale });
 
-	// 同一组图重复提交：直接返回已有 pending 草稿，不再调模型（省钱），也不占限流额度。
-	const [existing] = await db()
-		.select()
-		.from(cardDrafts)
-		.where(and(eq(cardDrafts.imageHash, hash), eq(cardDrafts.status, "pending")))
-		.orderBy(desc(cardDrafts.createdAt))
-		.limit(1);
-
-	if (existing) {
-		return {
-			ok: true,
-			draft: toCardDraftDto(existing),
-			meta: {
-				model: existing.model ?? capability.model,
-				ms: existing.ms ?? 0,
-				imageBytes: totalBytes,
-				imageHash: `sha256:${hash}`,
-				deduped: true,
-			},
-		};
+	const fields = recognized.fields;
+	if (!fields.name) {
+		throw badRequestCard("没认出姓名：补拍一张清晰的正反面，或先手动建档。");
 	}
 
-	checkCardRateLimit(input.deviceId);
-
-	const startedAt = Date.now();
-
-	let recognized: RecognizedCard;
-	try {
-		recognized = await recognizeCard({ images, text: input.text, locale: input.locale });
-	} catch (error) {
-		// 识别失败也要留痕：写一条 failed 草稿（只有元数据，无字段值），方便排障。
-		const reason = (error instanceof Error ? error.message : String(error)).slice(0, 255);
-		const failedId = newId();
-		const at = nowMs();
-
-		await db().insert(cardDrafts).values({
-			id: failedId,
-			deviceId: input.deviceId,
-			status: "failed",
-			imageHash: hash,
-			imageBytes: totalBytes,
-			model: capability.model,
-			ms: Date.now() - startedAt,
-			error: reason,
-			createdAt: at,
-		});
-
-		throw createError({
-			statusCode: 502,
-			statusMessage: `视觉模型调用失败：${reason}`.slice(0, 200),
-			data: { code: "vision_failed", draftId: failedId },
-		});
-	}
-
-	const matchedContactId = await matchContactId(recognized.fields);
-	const id = newId();
-
-	await db().insert(cardDrafts).values({
-		id,
-		deviceId: input.deviceId,
-		status: "pending",
-		name: recognized.fields.name || null,
-		company: recognized.fields.company || null,
-		title: recognized.fields.title || null,
-		phone: recognized.fields.phone || null,
-		email: recognized.fields.email || null,
-		wechat: recognized.fields.wechat || null,
-		country: recognized.fields.country || null,
-		address: recognized.fields.address || null,
-		evidence: recognized.evidence,
-		rawText: recognized.rawText || null,
-		imageHash: hash,
-		imageBytes: totalBytes,
-		model: recognized.model,
-		ms: recognized.ms,
-		matchedContactId,
-		createdAt: nowMs(),
+	const ensured = await ensureContact({
+		name: fields.name,
+		phone: fields.phone || null,
+		wechatId: fields.wechat || null,
 	});
 
-	const row = await getCardDraftRow(id);
-	if (!row) throw new Error("名片草稿创建失败。");
+	if (fields.company) {
+		const company = await ensureCompany(fields.company);
+
+		await db()
+			.update(contacts)
+			.set({ companyId: company.id, updatedAt: nowMs() })
+			.where(eq(contacts.id, ensured.id));
+	}
+
+	const evidenceOf = (quote: string): Evidence[] => [
+		{
+			kind: "card.photo",
+			quote: (quote || fields.name).slice(0, CONFIG.card.maxEvidenceChars),
+			ref: `card:${hash.slice(0, 24)}`,
+			time: null,
+		},
+	];
+
+	const facts: RecordFactResult[] = [];
+
+	for (const item of FACT_FIELDS) {
+		const value = fields[item.key];
+		if (!value) continue;
+
+		facts.push(
+			await recordFact({
+				contactId: ensured.id,
+				field: item.label,
+				value,
+				evidence: evidenceOf(recognized.evidence[item.key] || value),
+				source: "card",
+			}),
+		);
+	}
+
+	const proposals: CardScanResult["proposals"] = [];
+
+	for (const extra of recognized.extras) {
+		const proposed = await proposeField({
+			scope: "contact",
+			label: extra.label,
+			sampleValue: extra.value,
+			sampleRef: ensured.id,
+			evidence: evidenceOf(extra.evidence || extra.value),
+		});
+
+		proposals.push({
+			id: proposed.def.id,
+			label: proposed.def.label,
+			status: proposed.def.status,
+			outcome: proposed.outcome,
+			value: extra.value,
+		});
+
+		// 撞到已有且已生效的字段：直接按普通事实写入，不重复建字段。
+		if (proposed.outcome === "exists" && proposed.def.status === "active") {
+			await recordFact({
+				contactId: ensured.id,
+				field: proposed.def.key,
+				value: extra.value,
+				evidence: evidenceOf(extra.evidence || extra.value),
+				source: "card",
+			});
+		}
+	}
 
 	return {
 		ok: true,
-		draft: toCardDraftDto(row),
+		contactId: ensured.id,
+		created: ensured.created,
+		matchedBy: ensured.matchedBy,
+		facts,
+		proposals,
+		extras: recognized.extras,
 		meta: {
 			model: recognized.model,
 			ms: recognized.ms,
 			imageBytes: totalBytes,
 			imageHash: `sha256:${hash}`,
-			deduped: false,
 		},
 	};
-}
-
-export async function listCardDrafts(input: {
-	status?: string;
-	limit?: number;
-}): Promise<CardDraftDto[]> {
-	await sweepCardDrafts();
-
-	const status = CARD_STATUSES.includes((input.status ?? "pending") as (typeof CARD_STATUSES)[number])
-		? (input.status ?? "pending")
-		: "pending";
-	const limit = Math.min(
-		Math.max(input.limit ?? CONFIG.card.draftListDefault, 1),
-		CONFIG.card.draftListMax,
-	);
-
-	const rows = await db()
-		.select()
-		.from(cardDrafts)
-		.where(eq(cardDrafts.status, status))
-		.orderBy(desc(cardDrafts.createdAt))
-		.limit(limit);
-
-	return rows.map(toCardDraftDto);
-}
-
-// ---------- 确认 / 丢弃：人改完的最终值才碰 contacts ----------
-
-export type CardConfirmResult = { ok: true; contactId: string; action: "created" | "updated" };
-
-function toContactInput(fields: CardFields, companyId: string | null): ContactInput {
-	return {
-		firstName: fields.name,
-		lastName: null,
-		title: fields.title || null,
-		email: fields.email || null,
-		phone: fields.phone || null,
-		wechatId: fields.wechat || null,
-		address: fields.address || null,
-		country: fields.country || null,
-		postalCode: null,
-		customerGrade: null,
-		businessRole: null,
-		relationshipState: null,
-		repairNote: null,
-		linkedin: null,
-		github: null,
-		notes: null,
-		companyId,
-	};
-}
-
-/** 确认更新 = 只写本次提交的非空字段，空字符串不覆盖原值（保护人工数据）。 */
-function mergeContactInput(existing: Contact, fields: CardFields, companyId: string | null): ContactInput {
-	const pick = (submitted: string, current: string | null) => (submitted ? submitted : (current ?? ""));
-
-	return {
-		firstName: fields.name || existing.firstName,
-		lastName: existing.lastName,
-		title: pick(fields.title, existing.title),
-		email: pick(fields.email, existing.email),
-		phone: pick(fields.phone, existing.phone),
-		wechatId: pick(fields.wechat, existing.wechatId),
-		address: pick(fields.address, existing.address),
-		country: pick(fields.country, existing.country),
-		postalCode: existing.postalCode,
-		customerGrade: existing.customerGrade,
-		businessRole: existing.businessRole,
-		relationshipState: existing.relationshipState,
-		repairNote: existing.repairNote,
-		linkedin: existing.linkedin,
-		github: existing.github,
-		notes: existing.notes,
-		companyId,
-	};
-}
-
-/** 提交了公司名就按现有通道「找到或新建」公司；没提交则保留联系人现有归属。 */
-async function resolveCompanyId(submitted: string, fallback: string | null): Promise<string | null> {
-	if (!submitted) return fallback;
-
-	const { id } = await ensureCompany(submitted);
-
-	return id;
-}
-
-export async function confirmCardDraft(
-	id: string,
-	body: unknown,
-	note?: string | null,
-): Promise<CardConfirmResult> {
-	await sweepCardDrafts();
-
-	const parsed = z.object({ fields: cardFieldsSchema }).safeParse(body ?? {});
-	if (!parsed.success) throw badRequestCard("参数不对：body 里要有 fields 字段对象。");
-
-	const fields = normalizeCardFields(parsed.data.fields);
-	if (!fields.name) throw badRequestCard("姓名不能为空：确认建档时 name 必填。");
-
-	const draft = await getCardDraftRow(id);
-	if (!draft || draft.status !== "pending") throw notFoundCard("草稿不存在或已处理。");
-
-	let contactId: string;
-	let action: "created" | "updated";
-
-	const matched = draft.matchedContactId ? await getContact(draft.matchedContactId) : null;
-
-	if (matched) {
-		contactId = matched.id;
-		action = "updated";
-		const companyId = await resolveCompanyId(fields.company, matched.companyId);
-		await updateContact(matched.id, mergeContactInput(matched, fields, companyId));
-	} else {
-		const companyId = await resolveCompanyId(fields.company, null);
-		const created = await createContact(toContactInput(fields, companyId));
-		contactId = created.id;
-		action = "created";
-
-		// 与手工建档同一条路径：智能体开着就补一次后台研究。
-		if (agentCapability().enabled) {
-			await enqueueResearch(contactId, "名片确认建档，自动触发一次后台研究。");
-		}
-	}
-
-	await db()
-		.update(cardDrafts)
-		.set({
-			status: "confirmed",
-			contactId,
-			confirmedAt: nowMs(),
-			decidedNote: note?.trim() || null,
-		})
-		.where(eq(cardDrafts.id, id));
-
-	return { ok: true, contactId, action };
-}
-
-export async function discardCardDraft(
-	id: string,
-	note?: string | null,
-): Promise<{ ok: true }> {
-	await sweepCardDrafts();
-
-	const draft = await getCardDraftRow(id);
-	if (!draft || draft.status !== "pending") throw notFoundCard("草稿不存在或已处理。");
-
-	await db()
-		.update(cardDrafts)
-		.set({ status: "discarded", decidedNote: note?.trim() || "人工丢弃。" })
-		.where(eq(cardDrafts.id, id));
-
-	return { ok: true };
 }

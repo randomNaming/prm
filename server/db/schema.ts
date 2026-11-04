@@ -342,45 +342,4 @@ export const messages = mysqlTable(
  * 随 1 天保留期一起清理；识别失败也记一条 status=failed 的行（只有元数据，无字段值）。
  * 字段不带置信度 —— 与既有导入链路一致（contact_facts 只带 evidence 原文对照）。
  */
-export const cardDrafts = mysqlTable(
-	"card_drafts",
-	{
-		id: varchar("id", { length: 36 }).primaryKey(),
-		/** 提交设备：megrez 设备票据的 sub（dev_xxx），天权未启用时为 local。 */
-		deviceId: varchar("device_id", { length: 64 }).notNull(),
-		/** pending → confirmed / discarded；识别失败落 failed（仅元数据）。 */
-		status: varchar("status", { length: 16 }).notNull().default("pending"),
-		/** 识别结果（人可在确认时改）。 */
-		name: varchar("name", { length: 191 }),
-		company: varchar("company", { length: 191 }),
-		title: varchar("title", { length: 191 }),
-		phone: varchar("phone", { length: 64 }),
-		email: varchar("email", { length: 191 }),
-		wechat: varchar("wechat", { length: 191 }),
-		country: varchar("country", { length: 64 }),
-		address: varchar("address", { length: 191 }),
-		/** 每字段的原文片段（≤60 字），与 contact_facts 的 evidence 同一逻辑，供人对照。 */
-		evidence: json("evidence"),
-		/** 模型看到的完整文字（截断存储）。 */
-		rawText: mediumtext("raw_text"),
-		/** 多图：各图 sha256 拼接后再 sha256，同一组图判重一致。 */
-		imageHash: char("image_hash", { length: 64 }),
-		imageBytes: int("image_bytes"),
-		model: varchar("model", { length: 64 }),
-		ms: int("ms"),
-		/** status=failed 时的失败原因。 */
-		error: varchar("error", { length: 255 }),
-		/** 识别阶段匹配到的已有联系人：命中即提示「将更新已有联系人」。 */
-		matchedContactId: varchar("matched_contact_id", { length: 36 }),
-		/** 确认后写入/更新的联系人。 */
-		contactId: varchar("contact_id", { length: 36 }),
-		createdAt: bigint("created_at", { mode: "number" }).notNull(),
-		confirmedAt: bigint("confirmed_at", { mode: "number" }),
-		decidedNote: varchar("decided_note", { length: 255 }),
-	},
-	(table) => [
-		index("card_drafts_status").on(table.status),
-		index("card_drafts_hash").on(table.imageHash),
-		index("card_drafts_phone").on(table.phone),
-	],
-);
+// 名片识别不再单独建表：结果直接走 contacts / contact_facts / field_defs。
