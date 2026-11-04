@@ -102,76 +102,111 @@ async function restore(row: unknown) {
 }
 
 const total = computed(() => data.value?.total ?? 0);
+
+/** 首页 / 别处带 ?create=1 过来，落地即开弹窗，参数随即抹掉。 */
+onMounted(() => {
+	if (route.query.create !== "1") return;
+
+	showCreate.value = true;
+
+	const next = { ...route.query };
+	delete next.create;
+	void router.replace({ query: next });
+});
 </script>
 
 <template>
-	<div class="crm-page">
-		<div class="crm-spread crm-section">
-			<h1 class="crm-title">公司</h1>
-			<el-button type="primary" @click="showCreate = true">新建公司</el-button>
-		</div>
-
-		<div class="crm-spread crm-section">
-			<div class="crm-row">
-				<el-input
-					v-model="q"
-					placeholder="按公司名或域名搜索（子串匹配）"
-					style="max-width: 360px"
-					clearable
-					@keyup.enter="search"
-					@clear="search"
-				/>
-				<el-button @click="search">搜索</el-button>
-			</div>
-			<div class="crm-row">
-				<el-switch
-					:model-value="archived"
-					active-text="显示已归档"
-					@update:model-value="(value: string | number | boolean) => toggleArchived(Boolean(value))"
-				/>
-				<ColumnPicker
-					:columns="columns"
-					:model-value="visible"
-					@update:model-value="setVisible"
-					@reset="reset"
-				/>
-			</div>
-		</div>
-
-		<RecordTable v-if="total > 0" :columns="visibleColumns" :rows="data?.items ?? []">
-			<template #actions>
-				<el-table-column label="操作" width="90" fixed="right">
-					<template #default="{ row }">
-						<el-popconfirm
-							v-if="!archived"
-							width="260"
-							title="删除后不再出现在列表，可在「显示已归档」里恢复。确定删除？"
-							confirm-button-text="删除"
-							cancel-button-text="取消"
-							confirm-button-type="danger"
-							@confirm="remove(row)"
-						>
-							<template #reference>
-								<el-button link type="danger" size="small">删除</el-button>
-							</template>
-						</el-popconfirm>
-						<el-button v-else link type="primary" size="small" @click="restore(row)">恢复</el-button>
-					</template>
-				</el-table-column>
+	<div class="cvd crm-page">
+		<PageHead title="公司">
+			<template #chips>
+				<span class="cvd-chip">共 {{ total }} 家</span>
+				<span v-if="archived" class="cvd-chip cvd-chip--plain">含已归档</span>
 			</template>
-		</RecordTable>
+			<template #meta>
+				<span>按公司名或域名搜索</span>
+				<span class="cvd-sep">·</span>
+				<span>一家公司下挂所有对接人与商机</span>
+			</template>
+			<template #actions>
+				<button class="cvd-btn cvd-btn--primary" @click="showCreate = true">新建公司</button>
+			</template>
+		</PageHead>
 
-		<el-empty v-else :description="archived ? '没有已归档的公司' : '还没有公司，新建一个'" />
+		<section class="cvd-card cvd-card--table">
+			<div class="cvd-toolbar">
+				<div class="cvd-toolbar__group">
+					<el-input
+						v-model="q"
+						placeholder="搜索公司名 / 域名"
+						style="width: 272px"
+						clearable
+						@keyup.enter="search"
+						@clear="search"
+					>
+						<template #prefix>
+							<svg class="cvd-ico cvd-toolbar__ico" viewBox="0 0 24 24">
+								<circle cx="11" cy="11" r="6.6" /><path d="M16 16.4 20.5 21" />
+							</svg>
+						</template>
+					</el-input>
+					<button class="cvd-btn" @click="search">搜索</button>
+				</div>
+				<div class="cvd-toolbar__group cvd-toolbar__group--end">
+					<el-switch
+						:model-value="archived"
+						active-text="显示已归档"
+						@update:model-value="(value: string | number | boolean) => toggleArchived(Boolean(value))"
+					/>
+					<ColumnPicker
+						:columns="columns"
+						:model-value="visible"
+						@update:model-value="setVisible"
+						@reset="reset"
+					/>
+				</div>
+			</div>
 
-		<el-pagination
-			v-if="total > 20"
-			class="crm-pagination"
-			layout="prev, pager, next"
-			:total="total"
-			:page-size="20"
-			:current-page="page"
-			@current-change="(value: number) => (page = value)"
-		/>
+			<template v-if="total > 0">
+				<RecordTable :columns="visibleColumns" :rows="data?.items ?? []">
+					<template #actions>
+						<el-table-column label="操作" width="90" fixed="right">
+							<template #default="{ row }">
+								<el-popconfirm
+									v-if="!archived"
+									width="260"
+									title="删除后不再出现在列表，可在「显示已归档」里恢复。确定删除？"
+									confirm-button-text="删除"
+									cancel-button-text="取消"
+									confirm-button-type="danger"
+									@confirm="remove(row)"
+								>
+									<template #reference>
+										<el-button link type="danger" size="small">删除</el-button>
+									</template>
+								</el-popconfirm>
+								<el-button v-else link type="primary" size="small" @click="restore(row)">恢复</el-button>
+							</template>
+						</el-table-column>
+					</template>
+				</RecordTable>
+
+				<el-pagination
+					v-if="total > 20"
+					class="cvd-pagination"
+					layout="prev, pager, next"
+					:total="total"
+					:page-size="20"
+					:current-page="page"
+					@current-change="(value: number) => (page = value)"
+				/>
+			</template>
+
+			<el-empty
+				v-else
+				:image-size="66"
+				:description="archived ? '没有已归档的公司' : '还没有公司，先建一个'"
+			/>
+		</section>
 
 		<el-dialog v-model="showCreate" title="新建公司" width="520">
 			<el-alert v-if="errorText" type="error" :closable="false" show-icon :title="errorText" />
@@ -179,15 +214,3 @@ const total = computed(() => data.value?.total ?? 0);
 		</el-dialog>
 	</div>
 </template>
-
-<style scoped>
-.crm-title {
-	font-size: 20px;
-	margin: 0;
-}
-
-.crm-pagination {
-	margin-top: 16px;
-	justify-content: flex-end;
-}
-</style>

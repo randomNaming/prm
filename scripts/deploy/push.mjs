@@ -2,6 +2,10 @@
 /**
  * 本地构建 + 推送到云服务器。
  *
+ * 数据库迁移在应用启动时自动执行（server/utils/auto-migrate.ts），
+ * 迁移 SQL 会被打进 .output；本脚本的 --migrate 只是没有配置
+ * PRM_MIGRATE_URL 时的兜底手段。
+ *
  * 为什么不在服务器上构建：那台机器内存不足以跑 Nuxt 构建（实测在 element-plus
  * transform 阶段就被 OOM 杀掉，腾出 MySQL 容器后仍然被杀）。所以构建放本地，
  * 服务器只接收 .output 并重启进程，全程不装 bun、不装构建依赖。
@@ -223,20 +227,22 @@ function runCapture(command, args) {
 		return;
 	}
 
-	console.log("\n⚠ 正式库结构与新代码不一致，相关页面可能因缺列报错。");
+	console.log("\n⚠ 正式库结构仍与新代码不一致：启动自动迁移可能没配置、失败，或被安全规则拒绝。");
 	console.log(output);
 
-	// 迁移永远不隐式执行：加 --migrate 才算明确要求
+	// 启动自动迁移才是正式路径：只在 .env 配了 PRM_MIGRATE_URL 时生效。
+	// 这里的 --migrate 只是兜底，且要求 SERVER_PROD_URL 指向迁移账号（不是只读的 prm_ro）。
 	const runMigration = argv.includes("--migrate");
 
 	if (!runMigration) {
-		console.log("\n本次没有执行迁移。确认已备份正式库后，加 --migrate 重跑本脚本，");
-		console.log("或在本地执行：DATABASE_URL=<服务器连接串> node scripts/migrate.mjs --confirm-prod");
+		console.log("\n先看服务器日志确认原因：ssh <host> \"journalctl -u prm -n 100 --no-pager\"");
+		console.log("自动迁移需要服务器 .env 里配置 PRM_MIGRATE_URL；没配的话手动执行：");
+		console.log("  DATABASE_URL=<迁移账号连接串> node scripts/migrate.mjs --confirm-prod");
 		process.exitCode = 2;
 		return;
 	}
 
-	console.log("\n执行正式库迁移（--confirm-prod）……");
+	console.log("\n执行 --migrate（SERVER_PROD_URL 必须是迁移账号，prm_ro 没有 DDL 权限）……");
 	const migrate = spawnSync(process.execPath, ["scripts/migrate.mjs", "--confirm-prod"], {
 		cwd: root,
 		stdio: "inherit",

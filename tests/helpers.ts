@@ -17,6 +17,7 @@ export const TABLES = [
 	"deals",
 	"contacts",
 	"companies",
+	"card_drafts",
 ];
 
 /**
@@ -71,6 +72,14 @@ export function useAgentEnv(baseUrl: string): void {
 	process.env.ZAI_API_KEY = "test-key";
 	process.env.ZAI_BASE_URL = baseUrl;
 	process.env.ZAI_MODEL = "glm-test";
+}
+
+/** 名片识图测试环境：指向 stub 视觉模型。 */
+export function useVisionEnv(baseUrl: string): void {
+	process.env.VISION_ENABLED = "true";
+	process.env.VISION_API_KEY = "test-key";
+	process.env.VISION_BASE_URL = baseUrl;
+	process.env.VISION_MODEL = "glm-vision-test";
 }
 
 export async function contactFixture(input: Partial<ContactInput> = {}) {

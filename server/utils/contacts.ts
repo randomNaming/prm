@@ -203,8 +203,8 @@ export type EnsureContactResult = {
 	name: string;
 };
 
-/** 归一化比较键：去空白、去常见分隔符、转小写。仅用于查重，不写回库。 */
-function contactKey(value: string): string {
+/** 归一化比较键：去空白、去常见分隔符、转小写。仅用于查重，不写回库。名片识图的电话匹配也复用它。 */
+export function contactKey(value: string): string {
 	return value.trim().toLowerCase().replace(/[\s\-()（）]/g, "");
 }
 

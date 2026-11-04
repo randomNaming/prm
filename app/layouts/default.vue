@@ -316,6 +316,10 @@ const contactNav = computed(() => {
 }
 
 .sidebar {
+	/* 全站是 content-box 盒模型：height:100vh 必须显式含上 padding 和边框，
+		否则侧栏恒比视口高出 26px，底部的队列状态与「退出登录」被顶出屏幕，
+		整页凭空多出一条滚动条。 */
+	box-sizing: border-box;
 	width: 232px;
 	flex: none;
 	background: #fff;

@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 export default defineNuxtConfig({
 	srcDir: "app",
 	serverDir: "server",
@@ -8,7 +10,7 @@ export default defineNuxtConfig({
 		defaultLocale: "zh-cn",
 	},
 
-	css: ["~/assets/css/main.css", "~/assets/css/contact.css"],
+	css: ["~/assets/css/main.css", "~/assets/css/contact.css", "~/assets/css/list.css"],
 
 	devtools: { enabled: false },
 
@@ -32,6 +34,15 @@ export default defineNuxtConfig({
 		experimental: {
 			websocket: false,
 		},
+
+		// 迁移 SQL 跟着 .output 一起走：生产服务器不需要仓库、也不需要 SSH 拷文件。
+		// 运行时由 server/utils/auto-migrate.ts 通过 useStorage("assets:migrations") 读取。
+		serverAssets: [
+			{
+				baseName: "migrations",
+				dir: fileURLToPath(new URL("./server/db/migrations", import.meta.url)),
+			},
+		],
 	},
 
 	typescript: {

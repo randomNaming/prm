@@ -27,10 +27,10 @@ function onChange(keys: unknown) {
 <template>
 	<el-popover :width="280" trigger="click" placement="bottom-end">
 		<template #reference>
-			<el-button>
+			<button class="cvd-btn cvd-btn--sm crm-colpick__trigger">
 				显示字段
 				<span class="crm-colpick__count">{{ modelValue.length }}/{{ columns.length }}</span>
-			</el-button>
+			</button>
 		</template>
 
 		<div class="crm-colpick__head">
@@ -56,10 +56,17 @@ function onChange(keys: unknown) {
 </template>
 
 <style scoped>
+.crm-colpick__trigger {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	white-space: nowrap;
+}
+
 .crm-colpick__count {
-	color: var(--crm-muted);
-	margin-left: 4px;
-	font-size: 12px;
+	color: var(--crm-faint);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
 }
 
 .crm-colpick__head {
@@ -67,6 +74,8 @@ function onChange(keys: unknown) {
 	align-items: center;
 	justify-content: space-between;
 	margin-bottom: 8px;
+	font-size: 12.5px;
+	color: var(--crm-ink);
 }
 
 .crm-colpick__body {
@@ -80,16 +89,22 @@ function onChange(keys: unknown) {
 	gap: 2px;
 }
 
+.crm-colpick__body :deep(.el-checkbox) {
+	height: 26px;
+	font-size: 12.5px;
+}
+
 .crm-colpick__divider {
 	margin: 10px 0 6px;
 	padding-top: 8px;
 	border-top: 1px dashed var(--crm-line);
-	font-size: 12px;
-	color: var(--crm-muted);
+	font-size: 11.5px;
+	color: var(--crm-faint);
 }
 
 .crm-colpick__hint {
 	margin-top: 10px;
-	font-size: 12px;
+	font-size: 11.5px;
+	line-height: 1.6;
 }
 </style>

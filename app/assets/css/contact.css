@@ -622,6 +622,7 @@
 	font-size: 12px;
 	color: var(--muted);
 	padding-top: 1px;
+	white-space: nowrap;
 }
 
 .cvd-kv__v {
@@ -801,9 +802,16 @@
 
 .cvd-tl li {
 	display: flex;
+	align-items: flex-start;
 	gap: 9px;
 	padding: 7px 0;
 	border-bottom: 1px dashed var(--line-soft);
+}
+
+/* 列表行右侧的 pill 不跟着整行拉高，和标题对齐 */
+.cvd-tl > li > .cvd-pill {
+	align-self: center;
+	flex: none;
 }
 
 .cvd-tl li:last-child {

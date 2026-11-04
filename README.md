@@ -345,14 +345,39 @@ crm-mini/
 - **迁移账号不给 DROP**，而 MySQL 的 `TRUNCATE TABLE` 需要 DROP 权限，所以正式库里 TRUNCATE / DROP TABLE 物理上执行不了；
 - 本地调试连正式库一律用只读账号，只有 SELECT。
 
-改结构的唯一入口是迁移脚本，测试库和正式库各自跑一次同一条命令，靠 `crm_migrations` 账本去重：
+改结构只能通过迁移文件（`server/db/migrations/*.sql`），靠 `crm_migrations` 账本去重：
 
 ```bash
-bun run db:migrate                     # 测试库直接跑
-node scripts/migrate.mjs --confirm-prod  # 正式库需显式确认，先做快照
+bun run db:migrate                       # 测试库直接跑
+node scripts/migrate.mjs --confirm-prod  # 正式库手动执行时需显式确认，先做快照
 ```
 
 `scripts/migrate.mjs` 会扫描每个迁移文件，遇到 `DROP` / `TRUNCATE` / `DELETE FROM` / `ALTER ... DROP COLUMN` 默认拒绝，必须在文件顶部写明 `-- @allow-destructive: 原因` 并加 `--allow-destructive` 才放行。
+
+### 启动时自动迁移（Flyway 模式）
+
+生产服务器不用再手动跑 SQL：在服务器 `.env` 里配置迁移账号
+
+```dotenv
+PRM_MIGRATE_URL=mysql://prm_migrate:<密码>@127.0.0.1:3308/prm
+```
+
+应用启动后、第一个请求进来前，会自动把 `.output` 内置的迁移补齐。迁移 SQL 通过 Nitro serverAssets 打进
+`.output`，和代码永远同版本——服务器上不需要仓库、不需要 SSH、也不需要 `node_modules`。
+
+自动模式的安全边界：
+
+- 只执行「增」的语句：`CREATE TABLE` / `CREATE INDEX` / `ALTER TABLE ... ADD ...`；
+- 出现 `UPDATE` / `DELETE` / `ALTER ... CHANGE|MODIFY` / `RENAME` / `DROP` / `TRUNCATE` 会**拒绝启动**（503）；
+  确认已备份后，设置 `PRM_ALLOW_UNSAFE_MIGRATIONS=1` 才放行非只增语句；`DROP` / `TRUNCATE` 还要
+  `PRM_ALLOW_DESTRUCTIVE=1` 且文件顶部有 `-- @allow-destructive`；
+- 已应用的迁移记录校验和，文件被改过会拒绝启动（`PRM_SKIP_CHECKSUM=1` 可跳过一次）；
+- 有待应用迁移时先对现有表做精确行数快照，迁移后行数变化立即报错；
+- `GET_LOCK` 防止多进程同时迁移；
+- `PRM_AUTO_MIGRATE=off` 可临时跳过自动迁移，用于数据库维护或紧急回滚；
+- 迁移失败时服务返回 503，日志看 `journalctl -u prm`（或宝塔 Node 项目日志）。
+
+手动命令仍然保留：测试库、首次初始化、正式库的「非只增」变更、以及演练都走 `scripts/migrate.mjs`。
 
 ### 测试会清空所连的库
 
@@ -414,9 +439,11 @@ bun test tests/lists.test.ts
 
 云服务器（宝塔面板）的完整步骤见 [docs/宝塔部署教程.md](docs/宝塔部署教程.md)。
 服务器内存不足以跑 Nuxt 构建，所以构建在本地：`bun run build` 后把 `.output` 上传到服务器、
-重启服务即可（宝塔文件管理器拖拽也行）。想省事可以用 `bun run deploy`
-（[scripts/deploy/push.mjs](scripts/deploy/push.mjs)）自动完成上传和重启；
-它**不执行数据库迁移**，只有显式加 `--migrate` 才会动表结构。
+重启服务即可（宝塔文件管理器拖拽也行）。
+
+如果服务器的 `.env` 配了 `PRM_MIGRATE_URL`，新 `.output` 启动时会自动应用安全迁移（见上）；没配就仍然
+手动跑 `node scripts/migrate.mjs --confirm-prod`。`bun run deploy`（[scripts/deploy/push.mjs](scripts/deploy/push.mjs)）
+本身不直接执行迁移，`--migrate` 也要求连接串里是迁移账号。
 
 下面是手工部署时的最小示例。
 

@@ -50,5 +50,14 @@ export function personName(person: {
 	firstName?: string | null;
 	lastName?: string | null;
 }): string {
-	return `${person.firstName ?? ""}${person.lastName ?? ""}`;
+	const first = (person.firstName ?? "").trim();
+	const last = (person.lastName ?? "").trim();
+
+	if (!first) return last;
+	if (!last) return first;
+
+	// 拉丁名之间补空格（David McGowan）；中文名是「姓 + 名」，直接拼（李思远）。
+	return /[A-Za-z]$/.test(first) && /^[A-Za-z]/.test(last)
+		? `${first} ${last}`
+		: `${first}${last}`;
 }

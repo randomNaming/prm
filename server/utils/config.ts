@@ -81,6 +81,31 @@ export const CONFIG = {
 		agentStatusMs: 5 * SECOND_MS,
 	},
 
+	/** 名片识图（v1.1）：收图 → 视觉模型 → 草稿 → 人确认才进 contacts。 */
+	card: {
+		/** 一次综合识别最多几张（正面 + 背面）。 */
+		maxImages: 2,
+		/** 单张图片 base64 字符数上限（对应约 2.2MB 原图）。 */
+		maxImageBase64Chars: 3 * 1024 * 1024,
+		/** 单次请求全部图片 base64 合计上限。 */
+		maxTotalBase64Chars: 6 * 1024 * 1024,
+		/** 草稿统一保留 1 天：pending 超期自动作废，已处理的清理。 */
+		retentionMs: 1 * DAY_MS,
+		/** 限流窗口：每设备 10 次、全局 60 次。 */
+		rateWindowMs: 1 * MINUTE_MS,
+		ratePerDevice: 10,
+		rateGlobal: 60,
+		/** evidence 原文片段的截断长度。 */
+		maxEvidenceChars: 60,
+		/** raw_text 落库截断长度。 */
+		maxRawTextChars: 20000,
+		/** 端上补充文本（OCR/手输）长度上限。 */
+		maxHintTextChars: 2000,
+		/** 待确认列表默认与最大条数。 */
+		draftListDefault: 20,
+		draftListMax: 100,
+	},
+
 	time: {
 		secondMs: SECOND_MS,
 		minuteMs: MINUTE_MS,

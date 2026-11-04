@@ -54,6 +54,7 @@ beforeAll(async () => {
 			PORT: String(PORT),
 			HOST: "127.0.0.1",
 			ZAI_API_KEY: "",
+			VISION_API_KEY: "",
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -384,5 +385,22 @@ describe.skipIf(!built)("NFR 降级：未配置智谱密钥", () => {	test("智�
 
 		const status = await get("/api/status");
 		expect(status.payload.pending).toBe(0);
+	});
+});
+
+describe.skipIf(!built)("名片识图 v1.1：接口边界", () => {
+	test("未配置视觉模型时收图返回 503 vision_disabled", async () => {
+		const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x01]).toString("base64");
+		const response = await post("/api/card/intake", { images: [`data:image/jpeg;base64,${jpeg}`] });
+
+		expect(response.status).toBe(503);
+	});
+
+	test("待确认草稿列表可读（App 与 PC 共用）", async () => {
+		const response = await get("/api/card/drafts?status=pending");
+
+		expect(response.status).toBe(200);
+		expect(response.payload.ok).toBe(true);
+		expect(Array.isArray(response.payload.drafts)).toBe(true);
 	});
 });

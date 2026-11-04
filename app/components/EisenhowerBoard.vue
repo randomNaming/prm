@@ -78,7 +78,7 @@ function driftStyle(index: number) {
 </script>
 
 <template>
-	<div class="crm-board">
+	<div class="cvd crm-board">
 		<el-alert v-if="errorText" class="crm-board__error" type="error" :closable="false" show-icon :title="errorText" />
 
 		<div class="crm-board__grid">
@@ -95,11 +95,12 @@ function driftStyle(index: number) {
 				@drop.prevent="onDrop(column.quadrant)"
 			>
 				<header class="crm-board__head">
+					<span class="crm-board__dot" />
 					<strong class="crm-board__label">{{ column.label }}</strong>
-					<el-tag size="small" effect="plain" round>{{ column.items.length }}</el-tag>
+					<span class="crm-board__count">{{ column.items.length }}</span>
 				</header>
 
-				<p v-if="column.items.length === 0" class="crm-muted crm-board__empty">
+				<p v-if="column.items.length === 0" class="cvd-muted crm-board__empty">
 					空。把别的格子里的东西拖进来即可。
 				</p>
 
@@ -145,29 +146,25 @@ function driftStyle(index: number) {
 							<NuxtLink :to="item.to" class="crm-board__title" draggable="false">
 								{{ item.title }}
 							</NuxtLink>
-							<div v-if="item.detail" class="crm-muted crm-board__detail">{{ item.detail }}</div>
+							<div v-if="item.detail" class="crm-board__detail">{{ item.detail }}</div>
 						</div>
 
 						<div class="crm-board__meta">
 							<span v-if="item.badge" class="crm-board__badge">{{ item.badge }}</span>
-							<span v-if="item.pinned" class="crm-muted crm-board__pin" title="被你手动拖过来的">手动</span>
-							<el-button
+							<span v-if="item.pinned" class="crm-board__pin" title="被你手动拖过来的">手动</span>
+							<button
 								v-if="item.type === 'task'"
-								link
-								type="primary"
-								size="small"
-								:loading="busy === `${item.type}:${item.id}`"
+								class="crm-board__done"
+								:disabled="busy === `${item.type}:${item.id}`"
 								@click="completeTask(item)"
-							>
-								完成
-							</el-button>
+							>完成</button>
 						</div>
 					</article>
 				</div>
 			</section>
 		</div>
 
-		<p class="crm-muted crm-board__foot">
+		<p class="cvd-muted crm-board__foot">
 			把卡片拖到别的格子就能改判，判断记在库里；拖回它本来该在的位置即恢复自动判定。
 			<span v-if="(data?.pinnedCount ?? 0) > 0">当前有 {{ data?.pinnedCount }} 项是你手动摆的。</span>
 		</p>
@@ -187,59 +184,108 @@ function driftStyle(index: number) {
 
 .crm-board__cell {
 	background: #fff;
-	border: 1px solid var(--crm-line);
-	border-radius: 8px;
-	padding: 12px;
-	min-height: 150px;
-	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	padding: 11px 13px 9px;
+	min-height: 138px;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .crm-board__cell.is-over {
-	border-color: var(--crm-brand);
-	box-shadow: 0 0 0 2px rgba(0, 107, 79, 0.12);
+	border-color: var(--brand);
+	box-shadow: 0 0 0 3px var(--brand-soft);
 }
 
-/* 第一象限：一眼要看到「这个现在就得动」 */
+/* 四象限各用一个色点做身份，不靠整块底色喊话 */
 .crm-board__cell--urgent_important {
-	border-color: #f0b4b4;
 	background: #fffafa;
+	border-color: #f3e0dc;
 }
 
 .crm-board__cell--neither {
-	background: var(--crm-surface);
+	background: #fbfcfd;
 }
 
 .crm-board__head {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	margin-bottom: 10px;
+	gap: 7px;
+	margin-bottom: 6px;
+}
+
+.crm-board__dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	flex: none;
+	background: var(--brand);
+}
+
+.crm-board__cell--urgent_important .crm-board__dot {
+	background: #c0644f;
+}
+
+.crm-board__cell--important .crm-board__dot {
+	background: #4b7bd4;
+}
+
+.crm-board__cell--urgent .crm-board__dot {
+	background: #d3a13f;
+}
+
+.crm-board__cell--neither .crm-board__dot {
+	background: #b7c0cd;
 }
 
 .crm-board__label {
-	font-size: 14px;
+	font-size: 12.5px;
+	font-weight: 650;
+	color: var(--ink);
+	letter-spacing: 0.2px;
+}
+
+.crm-board__count {
+	margin-left: auto;
+	font-size: 10.5px;
+	font-weight: 600;
+	line-height: 1.5;
+	padding: 0 6px;
+	border-radius: 999px;
+	background: var(--grey-bg);
+	color: #7b8494;
+	font-variant-numeric: tabular-nums;
 }
 
 .crm-board__empty {
-	font-size: 12px;
+	font-size: 11.5px;
 	margin: 0;
+	line-height: 1.7;
 }
 
 .crm-board__list {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
 }
 
+/* 每条是一行，不再嵌套第二层小卡片 —— 与详情页的 kv / 时间线是同一节奏 */
 .crm-board__card {
 	display: flex;
 	align-items: flex-start;
 	gap: 8px;
-	padding: 7px 9px;
-	border: 1px solid var(--crm-line);
-	border-radius: 6px;
-	background: #fff;
+	padding: 7px 6px;
+	margin: 0 -6px;
+	border-bottom: 1px dashed var(--line-soft);
+	border-radius: 7px;
 	cursor: grab;
+	transition: background 0.12s;
+}
+
+.crm-board__card:last-child {
+	border-bottom: none;
+}
+
+.crm-board__card:hover {
+	background: #f8fafd;
 }
 
 .crm-board__card:active {
@@ -250,23 +296,18 @@ function driftStyle(index: number) {
 	opacity: 0.5;
 }
 
-/* 紧急且重要：整行标红，按顺序编号 */
-.crm-board__card--urgent {
-	border-color: #e88b8b;
-	background: #fef2f2;
-}
-
 .crm-board__rank {
 	flex: none;
-	width: 18px;
-	height: 18px;
-	line-height: 18px;
+	width: 16px;
+	height: 16px;
+	line-height: 16px;
 	text-align: center;
 	border-radius: 50%;
-	background: #d94a4a;
+	background: #d9534f;
 	color: #fff;
-	font-size: 11px;
-	margin-top: 1px;
+	font-size: 10px;
+	font-weight: 600;
+	margin-top: 2px;
 }
 
 .crm-board__body {
@@ -275,19 +316,25 @@ function driftStyle(index: number) {
 }
 
 .crm-board__title {
-	color: var(--crm-ink);
+	color: var(--ink);
 	font-weight: 500;
 	text-decoration: none;
-	font-size: 13px;
+	font-size: 12.5px;
+	line-height: 1.5;
+}
+
+.crm-board__title:hover {
+	color: var(--brand);
 }
 
 .crm-board__card--urgent .crm-board__title {
-	color: #b3261e;
+	color: #3f2b28;
 }
 
 .crm-board__detail {
-	font-size: 12px;
-	margin-top: 2px;
+	font-size: 11px;
+	margin-top: 1px;
+	color: var(--muted);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	display: -webkit-box;
@@ -299,20 +346,46 @@ function driftStyle(index: number) {
 	flex: none;
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: 5px;
 }
 
 .crm-board__badge {
-	font-size: 11px;
-	color: #b3261e;
+	font-size: 10.5px;
+	color: #a2594f;
 	white-space: nowrap;
+	font-weight: 600;
 }
 
 .crm-board__pin {
-	font-size: 11px;
-	border: 1px dashed var(--crm-line);
-	border-radius: 3px;
+	font-size: 10px;
+	color: var(--faint);
+	border: 1px dashed #dfe4ec;
+	border-radius: 4px;
 	padding: 0 3px;
+	line-height: 1.5;
+}
+
+.crm-board__done {
+	border: none;
+	background: none;
+	padding: 0 2px;
+	margin-left: 2px;
+	font-family: inherit;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--brand);
+	cursor: pointer;
+}
+
+.crm-board__done:hover {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.crm-board__done:disabled {
+	opacity: 0.5;
+	cursor: default;
+	text-decoration: none;
 }
 
 .crm-board__cloud {
@@ -321,14 +394,14 @@ function driftStyle(index: number) {
 	align-items: baseline;
 	column-gap: 18px;
 	row-gap: 8px;
-	padding: 6px 2px 2px;
+	padding: 4px 0 2px;
 	line-height: 2;
 }
 
 /* 第四象限：一片慢慢飘的词云。没有边框和底色，大小深浅错开。
    hover 暂停，否则想点的时候它一直在跑。 */
 .crm-cloud__word {
-	color: var(--crm-muted);
+	color: var(--muted);
 	text-decoration: none;
 	white-space: nowrap;
 	animation-name: crm-drift;
@@ -339,7 +412,7 @@ function driftStyle(index: number) {
 
 .crm-cloud__word:hover {
 	animation-play-state: paused;
-	color: var(--crm-brand);
+	color: var(--brand);
 	text-decoration: underline;
 	text-underline-offset: 5px;
 }
@@ -355,22 +428,22 @@ function driftStyle(index: number) {
 }
 
 .crm-cloud__word--0 {
-	font-size: 17px;
+	font-size: 15px;
 	font-weight: 600;
-	color: var(--crm-ink);
+	color: #5b6472;
 }
 
 .crm-cloud__word--1 {
-	font-size: 13px;
+	font-size: 12px;
 }
 
 .crm-cloud__word--2 {
-	font-size: 15px;
+	font-size: 13.5px;
 	font-weight: 500;
 }
 
 .crm-cloud__word--3 {
-	font-size: 14px;
+	font-size: 12.5px;
 }
 
 @keyframes crm-drift {
@@ -396,8 +469,9 @@ function driftStyle(index: number) {
 }
 
 .crm-board__foot {
-	font-size: 12px;
+	font-size: 11.5px;
 	margin: 10px 0 0;
+	line-height: 1.7;
 }
 
 @media (max-width: 720px) {

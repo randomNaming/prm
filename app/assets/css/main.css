@@ -7,6 +7,27 @@
 	--crm-faint: #9aa3b2;
 	--crm-line: #e8ebef;
 	--crm-surface: #f4f5f7;
+
+	/* Element Plus 主题对齐联系人详情页：同一个蓝、同一种圆角与字色。 */
+	--el-color-primary: #2563eb;
+	--el-color-primary-light-3: #5b8cef;
+	--el-color-primary-light-5: #93b4f5;
+	--el-color-primary-light-7: #c7d9fb;
+	--el-color-primary-light-8: #dbe7fd;
+	--el-color-primary-light-9: #edf3ff;
+	--el-color-primary-dark-2: #1d55d0;
+	--el-border-radius-base: 8px;
+	--el-border-radius-small: 6px;
+	--el-font-size-base: 13px;
+	--el-text-color-primary: #1c2430;
+	--el-text-color-regular: #39424f;
+	--el-text-color-secondary: #7b8494;
+	--el-text-color-placeholder: #9aa3b2;
+	--el-border-color: #e8ebef;
+	--el-border-color-light: #eef1f5;
+	--el-border-color-lighter: #f0f2f6;
+	--el-fill-color-light: #f7f9fc;
+	--el-fill-color-blank: #fff;
 }
 
 body {
@@ -118,4 +139,76 @@ body {
 
 .crm-timeline-item:last-child {
 	border-bottom: none;
+}
+
+/* ============ Element Plus 细节对齐详情页 ============ */
+
+/* 标签统一成详情页的 pill：浅灰蓝底 + 细边 + 蓝灰字，不再用 Element 的方块色块。 */
+.el-tag {
+	--el-tag-bg-color: #f2f6fc;
+	--el-tag-border-color: #dfe8f6;
+	--el-tag-text-color: #46679c;
+	height: auto;
+	padding: 2px 9px;
+	border-radius: 999px;
+	font-size: 11.5px;
+	line-height: 1.6;
+	font-weight: 500;
+}
+
+.el-tag--success {
+	--el-tag-bg-color: #e9f7f0;
+	--el-tag-border-color: #c9e9da;
+	--el-tag-text-color: #0f8a5f;
+}
+
+.el-tag--warning {
+	--el-tag-bg-color: #fff5e2;
+	--el-tag-border-color: #f0dfba;
+	--el-tag-text-color: #b26a00;
+}
+
+.el-tag--danger {
+	--el-tag-bg-color: #fbf4f3;
+	--el-tag-border-color: #eedcd9;
+	--el-tag-text-color: #a2594f;
+}
+
+.el-tag--info {
+	--el-tag-bg-color: #f2f4f7;
+	--el-tag-border-color: #e4e8ee;
+	--el-tag-text-color: #5b6472;
+}
+
+.el-button {
+	font-size: 12.5px;
+	font-weight: 500;
+}
+
+.el-button--primary {
+	box-shadow: 0 2px 8px rgba(37, 99, 235, 0.18);
+}
+
+.el-dialog {
+	--el-dialog-margin-top: 10vh;
+	border-radius: 12px;
+	padding: 18px 20px 16px;
+}
+
+/* 表单字段多的弹窗（新建联系人）不要顶出屏幕：body 内部滚动，标题与按钮常驻。 */
+.el-dialog__body {
+	max-height: calc(100vh - 300px);
+	overflow-y: auto;
+}
+
+.el-dialog__title {
+	font-size: 14px;
+	font-weight: 650;
+	color: var(--crm-ink);
+}
+
+.el-popover.el-popper {
+	border-radius: 10px;
+	border-color: var(--crm-line);
+	box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
 }
